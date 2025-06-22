@@ -7,5 +7,6 @@ dotnet run
 ## Regenerate the C# model file 
 
 ```bash
+pnpm install
 pnpm run gen
 ```

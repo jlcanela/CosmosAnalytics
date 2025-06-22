@@ -1,61 +1,70 @@
-using System.Text.Json;
+using ApiServices;
+using CosmosAnalytics.ApiService.Data;
+using Endpoints;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Binders;
+using Microsoft.Azure.Cosmos;
 using System.Text.Json.Serialization;
-using NJsonSchema;
-using AutoBogus;
-using ProjectModels;
-using FakeData;
-using Markdig;
 
-var builder = WebApplication.CreateBuilder(args);
-
-// Add service defaults & Aspire client integrations.
-builder.AddServiceDefaults();
-
-// Add services to the container.
-builder.Services.AddProblemDetails();
-
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
-
-var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-app.UseExceptionHandler();
-
-if (app.Environment.IsDevelopment())
+namespace CosmosAnalytics.ApiService
 {
-  app.MapOpenApi();
-}
 
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            AppContext.SetSwitch("Azure.Experimental.EnableActivitySource", true);
 
-app.MapGet("/", () =>
-{
-  string markdown = File.ReadAllText("README.md");
-  string documentation = Markdown.ToHtml(markdown);
-  return Results.Content(documentation, "text/html");
-});
+            var builder = WebApplication.CreateBuilder(args);
 
-var options = new JsonSerializerOptions
-{
-  WriteIndented = true,
-};
-options.Converters.Add(new JsonStringEnumConverter());
+            builder.AddServiceDefaults();
+            builder.Services.AddProblemDetails();
+            builder.Services.AddSingleton<ProjectRepository>();
+            builder.Services.AddSingleton<ProjectService>();
 
+            builder.AddAzureCosmosClient("projects",
+                configureClientOptions: options =>
+                {
+                    options.UseSystemTextJsonSerializerWithOptions = new System.Text.Json.JsonSerializerOptions()
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    };
+                });
 
-app.MapGet("/generate-sample", () =>
-{
-  var project = new CustomProjectFaker().Generate(); // AutoFaker.Generate<Project>();
-  string json = JsonSerializer.Serialize(project, options);
-  return json;
-})
-.WithName("GetGenerateSample");
+            builder.Services.AddSingleton(serviceProvider =>
+            {
+                var client = serviceProvider.GetRequiredService<CosmosClient>();
+                return client.GetDatabase("cosmosdb").GetContainer("projects");
+            });
 
+            builder.Services.AddOpenApi();
+            builder.Services.AddSwaggerUI();
+         
 
-app.MapDefaultEndpoints();
+            var app = builder.Build();
 
-app.Run();
+            app.UseExceptionHandler();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-  public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+            if (app.Environment.IsDevelopment())
+            {
+                app.MapOpenApi();
+                app.MapSwaggerUI();
+            }
+
+            app.MapGet("/", () =>
+            {
+                string markdown = File.ReadAllText("README.md");
+                string documentation = Markdig.Markdown.ToHtml(markdown);
+                return Results.Content(documentation, "text/html");
+            })
+            .ExcludeFromDescription();
+
+            // Register endpoints from the extracted controller
+            app.MapProjectEndpoints();
+
+            app.MapDefaultEndpoints();
+
+            app.Run();
+        }
+    }
 }

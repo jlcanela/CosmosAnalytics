@@ -1,16 +1,31 @@
-# `/generate-sample` Endpoint Documentation
+# API Endpoints
 
-## **Description**
+- **GET /**  
+  Returns HTML documentation generated from README.md.
 
-Returns a JSON object representing a fake `Project`, generated using `CustomProjectFaker` (powered by AutoBogus/Bogus). This endpoint is useful for testing, prototyping, or demonstrating the project data structure.
+- **GET /generate-sample**  
+  Returns a JSON object representing a randomly generated Project for testing and prototyping.
+  [https://api.example.com/generate-sample](/generate-sample)
 
+
+- **GET /projects**  
+  Returns all projects from the Cosmos DB container named 'projects'.
+  [https://api.example.com/projects](/projects)
+
+- **GET /project-items**  
+  Returns all items from the Cosmos DB container named 'projects'.
+  [https://api.example.com/project-items](/project-items)
+
+- **GET /project-items/{id}**  
+  Returns a single item from the Cosmos DB container named 'projects' based on the provided ID.
 ---
 
-## **HTTP Request**
+# API 
 
-```
-GET /generate-sample
-```
-
-Link to API: [https://api.example.com/generate-sample](/generate-sample)
+- **GET /openapi/v1.json**  
+  Returns the OpenAPI specification for the API.
+  [https://api.example.com/openapi/v1.json](/openapi/v1.json)
 ---
+
+  [Swagger](/swagger) 
+  [Redoc](/redoc
