@@ -1,21 +1,26 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using CosmosAnalytics.ApiService;
+using CosmosAnalytics.ApiService.Data;
 using FakeData;
 using Microsoft.Azure.Cosmos;
 using ProjectModels;
+using CosmosAnalytics.ApiService;
+using System.IO.Compression;
+using System.Text;
+using ZstdNet;
+using YamlDotNet.Serialization.EventEmitters;
 
 namespace ApiServices;
 
 public class ProjectService
 {
-    private readonly Container _container;
+    private readonly ProjectRepository _repository;
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly ILogger<ProjectService> _logger;
 
-    public ProjectService(Container container, ILogger<ProjectService> logger)
+    public ProjectService(ProjectRepository repository, ILogger<ProjectService> logger)
     {
-        _container = container;
+        _repository = repository;
         _logger = logger;
         _jsonOptions = new JsonSerializerOptions
         {
@@ -24,21 +29,27 @@ public class ProjectService
         };
     }
 
-    public Project GenerateSampleProject()
+    public async Task<int> GenerateSampleProject(int size)
     {
-        var project = new CustomProjectFaker().Generate();
-        _logger.LogInformation("Generated project: {Id}", project.Id);
-        _logger.LogInformation(JsonSerializer.Serialize(project, _jsonOptions));
-        return project;
+        var faker = new CustomProjectFaker();
+        var projects = new List<Project>();
+        for (int i = 0; i < size; i++)
+        {
+            var project = faker.Generate();
+            var inserted = await _repository.AddProjectAsync(project);
+            projects.Add(project);
+        }
+        return size;
     }
+
 
     public async Task<Project> AddProjectAsync(Project project)
     {
         try
         {
-            var response = await _container.CreateItemAsync(project, new PartitionKey(project.Id));
+            var inserted = await _repository.AddProjectAsync(project);
             _logger.LogInformation("Inserted project: {Id}", project.Id);
-            return response.Resource;
+            return inserted;
         }
         catch (CosmosException ex)
         {
@@ -47,57 +58,55 @@ public class ProjectService
         }
     }
 
+    public async Task<string> ExportAllProjectsAsync(bool useZstd = false)
+    {
+        var allItems = new List<JsonElement>();
+        string? continuationToken = null;
+        const int pageSize = 100;
+
+        do
+        {
+            var response = await GetRawProjectsAsync(pageSize, continuationToken);
+            allItems.AddRange(response.Items);
+            continuationToken = response.ContinuationToken;
+        } while (!string.IsNullOrEmpty(continuationToken));
+
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var extension = useZstd ? ".jsonl.zst" : ".jsonl";
+        var filename = $"export_projects_{timestamp}{extension}";
+        Stream stream = new FileStream(filename, FileMode.Create, FileAccess.Write);
+        var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+        if (useZstd)
+        {
+            stream = new CompressionStream(stream);
+        }
+
+        using var writer = new StreamWriter(stream, utf8NoBom);
+
+        foreach (var item in allItems)
+        {
+            string json = item.GetRawText();
+            await writer.WriteLineAsync(json);
+        }
+
+        writer.Close();
+
+        _logger.LogInformation("Exported {Count} projects to {Filename}", allItems.Count, filename);
+        return filename;
+    }
+
     public async Task<PaginatedResponse<JsonElement>> GetRawProjectsAsync(
         int? pageSize, string? continuationToken)
     {
-        var query = new QueryDefinition("SELECT * FROM c");
-        var results = new List<JsonElement>();
-        string? newContinuationToken = null;
-
-        var queryOptions = new QueryRequestOptions
-        {
-            MaxItemCount = pageSize ?? -1
-        };
-
-        using var feed = _container.GetItemQueryIterator<JsonElement>(
-            query,
-            continuationToken: continuationToken,
-            requestOptions: queryOptions);
-
-        if (feed.HasMoreResults)
-        {
-            var response = await feed.ReadNextAsync();
-            newContinuationToken = response.ContinuationToken;
-            results.AddRange(response);
-        }
-
-        return new PaginatedResponse<JsonElement>(results, newContinuationToken, results.Count);
+        var (items, token) = await _repository.GetRawProjectsAsync(pageSize, continuationToken);
+        return new PaginatedResponse<JsonElement>(items, token, items.Count);
     }
 
     public async Task<PaginatedResponse<Project>> GetProjectsAsync(
         int? pageSize, string? continuationToken)
     {
-        var query = new QueryDefinition("SELECT * FROM c");
-        var results = new List<Project>();
-        string? newContinuationToken = null;
-
-        var queryOptions = new QueryRequestOptions
-        {
-            MaxItemCount = pageSize ?? -1
-        };
-
-        using var feed = _container.GetItemQueryIterator<Project>(
-            query,
-            continuationToken: continuationToken,
-            requestOptions: queryOptions);
-
-        if (feed.HasMoreResults)
-        {
-            var response = await feed.ReadNextAsync();
-            newContinuationToken = response.ContinuationToken;
-            results.AddRange(response);
-        }
-
-        return new PaginatedResponse<Project>(results, newContinuationToken, results.Count);
+        var (items, token) = await _repository.GetProjectsAsync(pageSize, continuationToken);
+        return new PaginatedResponse<Project>(items, token, items.Count);
     }
 }

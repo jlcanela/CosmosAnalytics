@@ -21,6 +21,7 @@ namespace CosmosAnalytics.ApiService
             builder.Services.AddProblemDetails();
             builder.Services.AddSingleton<ProjectRepository>();
             builder.Services.AddSingleton<ProjectService>();
+            builder.Services.AddSingleton<ReportingService>();
 
             builder.AddAzureCosmosClient("projects",
                 configureClientOptions: options =>
@@ -29,6 +30,7 @@ namespace CosmosAnalytics.ApiService
                     {
                         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     };
+                    options.UseSystemTextJsonSerializerWithOptions.Converters.Add(new JsonStringEnumConverter());
                 });
 
             builder.Services.AddSingleton(serviceProvider =>

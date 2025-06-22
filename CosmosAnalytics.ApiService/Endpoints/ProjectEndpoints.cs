@@ -11,21 +11,23 @@ public static class ProjectEndpoints
 {
     public static void MapProjectEndpoints(this WebApplication app)
     {
-        app.MapGet("/generate-sample", async (
+        app.MapPost("/generate-sample", async (
             ProjectService service,
-            ILogger<ProjectService> logger) =>
+            ILogger<ProjectService> logger,
+            int size = 1) =>
         {
             try
             {
-                var project = service.GenerateSampleProject();
-                var inserted = await service.AddProjectAsync(project);
-                return Results.Json(inserted);
+                var count = await service.GenerateSampleProject(size);
+                return Results.Json(count);
             }
             catch (CosmosException)
             {
                 return Results.Problem("Failed to save project to database");
             }
-        }).WithName("GetGenerateSample");
+        }).WithName("PostGenerateSample")
+        .Produces<int>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         app.MapGet("/project-items", async (
             ProjectService service,
@@ -62,5 +64,46 @@ public static class ProjectEndpoints
         })
         .Produces<PaginatedResponse<Project>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        app.MapPost("/export-all", async (ProjectService service, [FromQuery] bool compressed) =>
+        {
+            try
+            {
+                var filename = await service.ExportAllProjectsAsync(compressed);
+                return Results.File(
+                    fileContents: await File.ReadAllBytesAsync(filename),
+                    contentType: compressed ? "application/zstd" : "application/jsonl",
+                    fileDownloadName: Path.GetFileName(filename)
+                );
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem($"Export failed: {ex.Message}");
+            }
+        })
+        .Produces<FileContentResult>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        app.MapGet("/report", async (
+     [FromQuery] string filename,
+     [FromQuery] string? sqlQuery,
+     [FromServices] ReportingService reportingService) =>  // Add [FromServices] here
+ {
+     try
+     {
+         // Use default query if none provided
+         var query = string.IsNullOrWhiteSpace(sqlQuery)
+             ? @"SELECT status, COUNT(*) as count FROM projects GROUP BY status"
+             : sqlQuery;
+
+         var results = await reportingService.RunReportAsync(filename, query);
+         return Results.Ok(results);
+     }
+     catch (Exception ex)
+     {
+         return Results.Problem($"Report failed: {ex.Message}");
+     }
+ });
+
     }
 }
