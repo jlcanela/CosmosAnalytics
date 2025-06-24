@@ -8,8 +8,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CosmosAnalytics.ServiceDefa
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CosmosAnalytics.ApiService", "CosmosAnalytics.ApiService\CosmosAnalytics.ApiService.csproj", "{39395F6D-5571-4FE1-9D03-2730DC3A5239}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CosmosAnalytics.Web", "CosmosAnalytics.Web\CosmosAnalytics.Web.csproj", "{1AFB196D-7933-474C-BC8D-E7D0943C232E}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

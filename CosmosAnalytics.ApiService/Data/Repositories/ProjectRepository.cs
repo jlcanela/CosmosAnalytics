@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using System.Text.Json;
 using ProjectModels;
+using Task = System.Threading.Tasks.Task;
 
 namespace CosmosAnalytics.ApiService.Data
 {
@@ -11,6 +12,29 @@ namespace CosmosAnalytics.ApiService.Data
         public ProjectRepository(Container container)
         {
             _container = container;
+        }
+
+        public async Task<List<Project>> AddProjectsBulkAsync(IEnumerable<Project> projects)
+        {
+            var tasks = new List<Task<ItemResponse<Project>>>();
+
+            foreach (var project in projects)
+            {
+                tasks.Add(_container.CreateItemAsync(project, new PartitionKey(project.Id)));
+            }
+
+            var results = await Task.WhenAll(tasks);
+
+            // You can handle failures here if needed (results may contain exceptions)
+            var createdProjects = new List<Project>();
+            foreach (var result in results)
+            {
+                if (result.StatusCode == System.Net.HttpStatusCode.Created)
+                    createdProjects.Add(result.Resource);
+                // Optionally handle other status codes or exceptions
+            }
+
+            return createdProjects;
         }
 
         public async Task<Project?> AddProjectAsync(Project project)
