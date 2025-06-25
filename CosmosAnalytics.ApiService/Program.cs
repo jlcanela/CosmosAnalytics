@@ -1,4 +1,5 @@
 using ApiServices;
+using Azure.Storage.Blobs;
 using CosmosAnalytics.ApiService.Data;
 using Endpoints;
 using Microsoft.AspNetCore.Builder;
@@ -16,12 +17,14 @@ namespace CosmosAnalytics.ApiService
             AppContext.SetSwitch("Azure.Experimental.EnableActivitySource", true);
 
             var builder = WebApplication.CreateBuilder(args);
+            string storageConnectionString = builder.Configuration.GetConnectionString("upload-container")!;
 
             builder.AddServiceDefaults();
             builder.Services.AddProblemDetails();
             builder.Services.AddSingleton<ProjectRepository>();
             builder.Services.AddSingleton<ProjectService>();
             builder.Services.AddSingleton<ReportingService>();
+            builder.Services.AddSingleton(new BlobServiceClient(storageConnectionString));
 
             builder.AddAzureCosmosClient("projects",
                 configureClientOptions: options =>

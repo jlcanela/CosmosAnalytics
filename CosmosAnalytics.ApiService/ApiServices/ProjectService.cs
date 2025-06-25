@@ -1,16 +1,11 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using CosmosAnalytics.ApiService.Data;
 using FakeData;
 using Microsoft.Azure.Cosmos;
 using ProjectModels;
 using CosmosAnalytics.ApiService;
 using System.Text;
-using ZstdNet;
-using System.Collections.Concurrent;
-using System.Threading.Channels;
-using Task = System.Threading.Tasks.Task;
-
+using Azure.Storage.Blobs;
 
 namespace ApiServices;
 
@@ -18,11 +13,13 @@ public class ProjectService
 {
     private readonly ProjectRepository _repository;
     private readonly ILogger<ProjectService> _logger;
+    private readonly BlobServiceClient _blobServiceClient;
 
-    public ProjectService(ProjectRepository repository, ILogger<ProjectService> logger)
+    public ProjectService(ProjectRepository repository, ILogger<ProjectService> logger, BlobServiceClient blobServiceClient)
     {
         _repository = repository;
         _logger = logger;
+        _blobServiceClient = blobServiceClient;
     }
 
     public async Task<int> GenerateSampleProject(int size)
@@ -65,139 +62,64 @@ public class ProjectService
         }
     }
 
-    public async Task<string> ExportAllProjectsAsync(bool useZstd = false)
+    public async Task<int> ExportAllProjects(Stream outputStream, Encoding encoding)
     {
-        const int pageSize = 100;
-        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        var extension = useZstd ? ".jsonl.zst" : ".jsonl";
-        var filename = $"export_projects_{timestamp}{extension}";
-        var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
-        var totalCount = 0;
-
-        // Create processing pipeline with backpressure
-        var processingChannel = Channel.CreateBounded<(List<JsonElement> Items, int PageIndex)>(10);
-        var buffer = new ConcurrentDictionary<int, byte[]>();
-
-        var writerTask = Task.Run(async () =>
-        {
-            await using var fileStream = new FileStream(filename, FileMode.Create, FileAccess.Write);
-
-            // Maintain write order using page index
-            var nextPageIndex = 0;
-
-            await foreach (var (items, pageIndex) in processingChannel.Reader.ReadAllAsync())
-            {
-                byte[] data;
-                // Wait until it's this page's turn to write
-                while (!buffer.TryRemove(nextPageIndex, out data))
-                {
-                    if (buffer.TryGetValue(nextPageIndex, out data))
-                    {
-                        buffer.TryRemove(nextPageIndex, out _);
-                        break;
-                    }
-                    await Task.Delay(10);
-                }
-
-                await fileStream.WriteAsync(data);
-                Interlocked.Add(ref totalCount, items.Count);
-                nextPageIndex++;
-            }
-        });
-
-        try
-        {
-            string? continuationToken = null;
-            var pageIndex = 0;
-
-            do
-            {
-                // Fetch next page
-                var response = await GetRawProjectsAsync(pageSize, continuationToken);
-                continuationToken = response.ContinuationToken;
-
-                // Process page in parallel (compression + serialization)
-                var currentPage = response.Items;
-                var currentIndex = pageIndex++;
-                _ = Task.Run(() => // Fixed: removed 'async'
-                {
-                    var jsonLines = string.Join('\n', currentPage.Select(j => j.GetRawText()));
-                    var bytes = utf8NoBom.GetBytes(jsonLines);
-
-                    if (useZstd)
-                    {
-                        using (var compressor = new Compressor())
-                        {
-                            bytes = compressor.Wrap(bytes);
-                        }
-                    }
-
-                    // Store bytes in buffer for ordered writing
-                    buffer[currentIndex] = bytes;
-                    processingChannel.Writer.TryWrite((currentPage, currentIndex));
-                });
-            } while (!string.IsNullOrEmpty(continuationToken));
-        }
-        finally
-        {
-            processingChannel.Writer.Complete();
-            await writerTask;
-        }
-
-        _logger.LogInformation("Exported {Count} projects to {Filename}", totalCount, filename);
-        return filename;
-    }
-
-    public async Task<string> ExportAllProjectsAsyncSimple(bool useZstd = false)
-    {
-        var allItems = new List<JsonElement>();
+        int totalCount = 0;
         string? continuationToken = null;
         const int pageSize = 100;
 
+        using var writer = new StreamWriter(outputStream, encoding, leaveOpen: true);
+
         do
         {
-            var response = await GetRawProjectsAsync(pageSize, continuationToken);
-            allItems.AddRange(response.Items);
+            var response = await _repository.GetRawProjectsAsync(pageSize, continuationToken);
             continuationToken = response.ContinuationToken;
+
+            foreach (var item in response.Items)
+            {
+                // Write each item as a JSON line
+                var jsonString = item.GetRawText();
+                await writer.WriteLineAsync(jsonString);
+                totalCount++;
+            }
+
         } while (!string.IsNullOrEmpty(continuationToken));
+
+        await writer.FlushAsync();
+        return totalCount;
+    }
+
+    public async Task<string> ExportAllProjectsAsyncSimple(bool useStorageAccount = false, bool useZstd = false)
+    {
+        var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
         var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var extension = useZstd ? ".jsonl.zst" : ".jsonl";
         var filename = $"export_projects_{timestamp}{extension}";
-        var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-        using (var fileStream = new FileStream(filename, FileMode.Create, FileAccess.Write))
+        // Single command to create, write, and close
+        await using (var export = await ExportStream.CreateAsync(
+            filename,
+            useStorageAccount,
+            useZstd,
+            _blobServiceClient))
         {
-            if (useZstd)
-            {
-                // Use ZstdSharp compression with explicit disposal
-                using (var compressionStream = new CompressionStream(fileStream))
-                using (var writer = new StreamWriter(compressionStream, utf8NoBom, leaveOpen: true))
-                {
-                    await WriteItemsAsync(writer, allItems);
-                }
-            }
-            else
-            {
-                using (var writer = new StreamWriter(fileStream, utf8NoBom, leaveOpen: true))
-                {
-                    await WriteItemsAsync(writer, allItems);
-                }
-            }
+            await ExportAllProjects(export.Stream, utf8NoBom);
         }
-
-        _logger.LogInformation("Exported {Count} projects to {Filename}", allItems.Count, filename);
         return filename;
     }
 
-    private async Task WriteItemsAsync(StreamWriter writer, List<JsonElement> items)
+    public async Task<List<string>> ListBlobFilesAsync()
     {
-        foreach (var item in items)
+        var container = _blobServiceClient.GetBlobContainerClient("upload-container");
+        var blobs = new List<string>();
+
+        await foreach (var blobItem in container.GetBlobsAsync())
         {
-            string json = item.GetRawText();
-            await writer.WriteLineAsync(json);
+            blobs.Add(blobItem.Name);
         }
-        await writer.FlushAsync();
+
+        return blobs;
     }
 
     public async Task<PaginatedResponse<JsonElement>> GetRawProjectsAsync(

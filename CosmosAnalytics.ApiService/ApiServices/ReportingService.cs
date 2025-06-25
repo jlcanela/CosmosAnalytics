@@ -15,7 +15,7 @@ namespace ApiServices
             _logger = logger;
         }
 
-        public async Task<List<Dictionary<string, object>>> RunReportAsync(string filePath, string sqlQuery)
+        public async Task<List<Dictionary<string, object>>> RunReportAsync(string filePath, string sqlQuery, bool useStorageAccount)
         {
             var results = new List<Dictionary<string, object>>();
 

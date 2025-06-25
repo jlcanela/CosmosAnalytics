@@ -65,45 +65,54 @@ public static class ProjectEndpoints
         .Produces<PaginatedResponse<Project>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-        app.MapPost("/export-all", async (ProjectService service, [FromQuery] bool compressed) =>
+        app.MapPost("/export-all", async (ProjectService service,
+         [FromQuery] bool compressed,
+            [FromQuery] bool useStorageAccount) =>
         {
             try
             {
-                var filename = await service.ExportAllProjectsAsync(compressed);
-                return Results.File(
-                    fileContents: await File.ReadAllBytesAsync(filename),
-                    contentType: compressed ? "application/zstd" : "application/jsonl",
-                    fileDownloadName: Path.GetFileName(filename)
-                );
+                var filename = await service.ExportAllProjectsAsyncSimple(useStorageAccount, compressed);
+                return Results.Text(filename, "text/plain");
+
             }
             catch (Exception ex)
             {
                 return Results.Problem($"Export failed: {ex.Message}");
             }
         })
-        .Produces<FileContentResult>(StatusCodes.Status200OK)
+        .Produces<string>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-        app.MapGet("/report", async (
-     [FromQuery] string filename,
-     [FromQuery] string? sqlQuery,
-     [FromServices] ReportingService reportingService) =>  // Add [FromServices] here
- {
-     try
-     {
-         // Use default query if none provided
-         var query = string.IsNullOrWhiteSpace(sqlQuery)
-             ? @"SELECT status, COUNT(*) as count FROM projects GROUP BY status"
-             : sqlQuery;
+        app.MapGet("/exports", async (ProjectService service) =>
+        {
+            var exports = await service.ListBlobFilesAsync();
+            return Results.Ok(exports);
+        })
+        .Produces<List<string>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-         var results = await reportingService.RunReportAsync(filename, query);
-         return Results.Ok(results);
-     }
-     catch (Exception ex)
-     {
-         return Results.Problem($"Report failed: {ex.Message}");
-     }
- });
+
+        app.MapGet("/report", async (
+         [FromQuery] string filename,
+         [FromQuery] string? sqlQuery,
+         [FromQuery] bool useStorageAccount,
+         [FromServices] ReportingService reportingService) =>  // Add [FromServices] here
+         {
+             try
+             {
+                 // Use default query if none provided
+                 var query = string.IsNullOrWhiteSpace(sqlQuery)
+                 ? @"SELECT status, COUNT(*) as count FROM projects GROUP BY status"
+                 : sqlQuery;
+
+                 var results = await reportingService.RunReportAsync(filename, query, useStorageAccount);
+                 return Results.Ok(results);
+             }
+             catch (Exception ex)
+             {
+                 return Results.Problem($"Report failed: {ex.Message}");
+             }
+         });
 
     }
 }
