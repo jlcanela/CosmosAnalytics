@@ -24,20 +24,31 @@ var blobs = storage.AddBlobs("upload-container");
 // Add CosmosDB emulator
 #pragma warning disable ASPIRECOSMOSDB001 
 var cosmos = builder.AddAzureCosmosDB("cosmos")
-    .RunAsPreviewEmulator((emulator =>
+    .RunAsEmulator((emulator =>
     {
         emulator
-        .WithHttpEndpoint(targetPort: 1234, name: "explorer-port", isProxied: true);
-        // .WithLifetime(ContainerLifetime.Persistent);
+        .WithHttpEndpoint(targetPort: 1234, name: "explorer-port", isProxied: true)
+        .WithLifetime(ContainerLifetime.Persistent);
     }));
 #pragma warning restore ASPIRECOSMOSDB001
 
 var cosmosdb = cosmos.AddCosmosDatabase("cosmosdb");
 var container = cosmosdb.AddContainer("projects", "/id"); // Partition key path
 
-builder.AddProject<Projects.CosmosAnalytics_ApiService>("apiservice")
+
+var api = builder.AddProject<Projects.CosmosAnalytics_ApiService>("apiservice")
     .WithReference(container)
     .WithReference(blobs)
     .WithHttpHealthCheck("/health");
+
+var web = builder.AddPnpmApp(name: "Web",
+        workingDirectory: "..",
+        scriptName: "webdev"
+    )
+    .WithHttpEndpoint(env: "PORT")
+    .WithExternalHttpEndpoints()
+    .WithPnpmPackageInstallation()
+    .WithReference(api)
+    .WaitFor(api); 
 
 builder.Build().Run();

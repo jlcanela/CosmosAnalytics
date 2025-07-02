@@ -1,5 +1,6 @@
 using ApiServices;
 using CosmosAnalytics.ApiService;
+using CosmosAnalytics.ApiService.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Cosmos;
 using ProjectModels;
@@ -7,11 +8,13 @@ using System.Text.Json;
 
 namespace Endpoints;
 
+
 public static class ProjectEndpoints
 {
-    public static void MapProjectEndpoints(this WebApplication app)
+    public static IEndpointRouteBuilder MapProjectEndpoints(this IEndpointRouteBuilder routes)
+    //    public static void MapProjectEndpoints(this WebApplication app)
     {
-        app.MapPost("/generate-sample", async (
+        routes.MapPost("/generate-sample", async (
             ProjectService service,
             ILogger<ProjectService> logger,
             int size = 1) =>
@@ -29,7 +32,7 @@ public static class ProjectEndpoints
         .Produces<int>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-        app.MapGet("/project-items", async (
+        routes.MapGet("/project-items", async (
             ProjectService service,
             [FromQuery] int? pageSize,
             [FromQuery] string? continuationToken) =>
@@ -47,7 +50,7 @@ public static class ProjectEndpoints
         .Produces<PaginatedResponse<JsonElement>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-        app.MapGet("/projects", async (
+        routes.MapGet("/projects", async (
             ProjectService service,
             [FromQuery] int? pageSize,
             [FromQuery] string? continuationToken) =>
@@ -65,7 +68,25 @@ public static class ProjectEndpoints
         .Produces<PaginatedResponse<Project>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-        app.MapPost("/export-all", async (ProjectService service,
+        routes.MapPost("/project-search", async (
+            [FromBody] ProjectSearchRequest searchRequest,
+            ProjectService service) =>
+        {
+            try
+            {
+                var results = await service.SearchProjectsAsync(searchRequest);
+                return Results.Ok(results);
+            }
+            catch (CosmosException)
+            {
+                return Results.Problem("Failed to search projects in database");
+            }
+        })
+        .Produces<PaginatedResponse<Project>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+
+        routes.MapPost("/export-all", async (ProjectService service,
          [FromQuery] bool compressed,
             [FromQuery] bool useStorageAccount) =>
         {
@@ -83,7 +104,7 @@ public static class ProjectEndpoints
         .Produces<string>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-        app.MapGet("/exports", async (ProjectService service) =>
+        routes.MapGet("/exports", async (ProjectService service) =>
         {
             var exports = await service.ListBlobFilesAsync();
             return Results.Ok(exports);
@@ -92,7 +113,7 @@ public static class ProjectEndpoints
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
 
-        app.MapGet("/report", async (
+        routes.MapGet("/report", async (
          [FromQuery] string filename,
          [FromQuery] string? sqlQuery,
          [FromQuery] bool useStorageAccount,
@@ -114,5 +135,6 @@ public static class ProjectEndpoints
              }
          });
 
+        return routes;
     }
 }

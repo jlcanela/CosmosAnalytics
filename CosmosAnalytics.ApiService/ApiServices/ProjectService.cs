@@ -9,6 +9,9 @@ using Azure.Storage.Blobs;
 
 namespace ApiServices;
 
+
+
+
 public class ProjectService
 {
     private readonly ProjectRepository _repository;
@@ -135,4 +138,11 @@ public class ProjectService
         var (items, token) = await _repository.GetProjectsAsync(pageSize, continuationToken);
         return new PaginatedResponse<Project>(items, token, items.Count);
     }
+
+    public async Task<PaginatedResponse<Project>> SearchProjectsAsync(ProjectSearchRequest searchRequest)
+    {
+        var (items, token) = await _repository.SearchProjectsAsync(searchRequest);
+        return new PaginatedResponse<Project>(items, token, items.Count);
+    }
+
 }

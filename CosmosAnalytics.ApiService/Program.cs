@@ -5,6 +5,7 @@ using Endpoints;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Binders;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.FileProviders;
 using System.Text.Json.Serialization;
 
 namespace CosmosAnalytics.ApiService
@@ -26,6 +27,12 @@ namespace CosmosAnalytics.ApiService
             builder.Services.AddSingleton<ReportingService>();
             builder.Services.AddSingleton(new BlobServiceClient(storageConnectionString));
 
+            builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
+            {
+                options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+            });
+
             builder.AddAzureCosmosClient("projects",
                 configureClientOptions: options =>
                 {
@@ -36,19 +43,36 @@ namespace CosmosAnalytics.ApiService
                     options.UseSystemTextJsonSerializerWithOptions.Converters.Add(new JsonStringEnumConverter());
                 });
 
+            builder.Services.AddSingleton<CosmosIndexingPolicyService>();
             builder.Services.AddSingleton(serviceProvider =>
             {
                 var client = serviceProvider.GetRequiredService<CosmosClient>();
                 return client.GetDatabase("cosmosdb").GetContainer("projects");
             });
 
+            builder.Services.AddHostedService<StartupOrHostedService>();
+
             builder.Services.AddOpenApi();
             builder.Services.AddSwaggerUI();
-         
+
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("LocalhostPolicy", policy =>
+                {
+                    policy
+                        .SetIsOriginAllowed(origin =>
+                        {
+                            // Allow http(s)://localhost:anyport
+                            if (origin is null) return false;
+                            return origin.StartsWith("http://localhost:") || origin.StartsWith("https://localhost:");
+                        })
+                        .AllowAnyHeader()
+                        .AllowAnyMethod()
+                        .AllowCredentials(); // Optional: if you need cookies/auth
+                });
+            });
 
             var app = builder.Build();
-
-            app.UseExceptionHandler();
 
             if (app.Environment.IsDevelopment())
             {
@@ -56,7 +80,7 @@ namespace CosmosAnalytics.ApiService
                 app.MapSwaggerUI();
             }
 
-            app.MapGet("/", () =>
+            app.MapGet("/swagger.help", () =>
             {
                 string markdown = File.ReadAllText("README.md");
                 string documentation = Markdig.Markdown.ToHtml(markdown);
@@ -64,11 +88,30 @@ namespace CosmosAnalytics.ApiService
             })
             .ExcludeFromDescription();
 
+            // Serve SPA static files
+            var spaPath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "../CosmosAnalytics.Web/dist/"));
+            app.UseDefaultFiles(new DefaultFilesOptions
+            {
+                FileProvider = new PhysicalFileProvider(spaPath),
+                RequestPath = ""
+            });
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider = new PhysicalFileProvider(spaPath),
+                RequestPath = ""
+            });
+
+            app.UseRouting();
+            app.UseCors("LocalhostPolicy");
+
+            var api = app.MapGroup("/api");
             // Register endpoints from the extracted controller
-            app.MapProjectEndpoints();
-
+            api.MapProjectEndpoints();
             app.MapDefaultEndpoints();
+            app.MapFallbackToFile("index.html");
 
+            app.UseExceptionHandler();
+            // app.MapFallbackToFile("{*path:nonfile}", "index.html");
             app.Run();
         }
     }
