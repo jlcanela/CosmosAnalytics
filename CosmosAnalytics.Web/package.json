@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@effect/schema": "^0.75.5",
+    "@heroicons/react": "^2.2.0",
     "@mantine/core": "^8.1.2",
     "@mantine/hooks": "^8.1.2",
     "@tabler/icons-react": "^3.34.0",

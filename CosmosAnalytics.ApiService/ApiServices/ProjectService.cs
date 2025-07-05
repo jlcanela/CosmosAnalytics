@@ -6,6 +6,7 @@ using ProjectModels;
 using CosmosAnalytics.ApiService;
 using System.Text;
 using Azure.Storage.Blobs;
+using EntitySearchApi.Models;
 
 namespace ApiServices;
 
@@ -142,6 +143,12 @@ public class ProjectService
     public async Task<PaginatedResponse<Project>> SearchProjectsAsync(ProjectSearchRequest searchRequest)
     {
         var (items, token) = await _repository.SearchProjectsAsync(searchRequest);
+        return new PaginatedResponse<Project>(items, token, items.Count);
+    }
+
+    public async Task<PaginatedResponse<Project>> SearchAsync(EntitySearchRequest searchRequest)
+    {
+        var (items, token) = await _repository.SearchAsync(searchRequest);
         return new PaginatedResponse<Project>(items, token, items.Count);
     }
 

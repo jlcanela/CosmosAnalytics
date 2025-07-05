@@ -1,14 +1,9 @@
 {
   "openapi": "3.0.4",
   "info": {
-    "title": "CosmosAnalytics.ApiService | v1",
-    "version": "1.0.0"
+    "title": "CosmosAnalytics.ApiService",
+    "version": "1.0"
   },
-  "servers": [
-    {
-      "url": "https://localhost:7415/"
-    }
-  ],
   "paths": {
     "/api/generate-sample": {
       "post": {
@@ -80,7 +75,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponseOfJsonElement"
+                  "$ref": "#/components/schemas/JsonElementPaginatedResponse"
                 }
               }
             }
@@ -126,7 +121,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponseOfProject"
+                  "$ref": "#/components/schemas/ProjectPaginatedResponse"
                 }
               }
             }
@@ -144,7 +139,7 @@
         }
       }
     },
-    "/api/project-search": {
+    "/api/search-projects": {
       "post": {
         "tags": [
           "CosmosAnalytics.ApiService"
@@ -153,7 +148,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ProjectSearchRequest"
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ProjectSearchRequest"
+                  }
+                ]
               }
             }
           },
@@ -165,7 +164,50 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponseOfProject"
+                  "$ref": "#/components/schemas/ProjectPaginatedResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/search": {
+      "post": {
+        "tags": [
+          "CosmosAnalytics.ApiService"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/EntitySearchRequest"
+                  }
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectPaginatedResponse"
                 }
               }
             }
@@ -306,47 +348,78 @@
         "type": "object",
         "properties": {
           "dependsOn": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "taskId": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
-      "PaginatedResponseOfJsonElement": {
-        "required": [
-          "items",
-          "continuationToken",
-          "count"
-        ],
+      "EntitySearchRequest": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array"
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "searchParameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchParameter"
+            },
+            "nullable": true
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
           },
           "continuationToken": {
             "type": "string",
             "nullable": true
           },
+          "sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SortField"
+            },
+            "nullable": true
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
           "count": {
-            "type": "integer",
-            "format": "int32"
+            "type": "boolean",
+            "nullable": true
+          },
+          "facets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "version": {
+            "type": "string",
+            "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
-      "PaginatedResponseOfProject": {
-        "required": [
-          "items",
-          "continuationToken",
-          "count"
-        ],
+      "JsonElementPaginatedResponse": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Project"
-            }
+            "items": { },
+            "nullable": true
           },
           "continuationToken": {
             "type": "string",
@@ -356,7 +429,8 @@
             "type": "integer",
             "format": "int32"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ProblemDetails": {
         "type": "object",
@@ -382,7 +456,8 @@
             "type": "string",
             "nullable": true
           }
-        }
+        },
+        "additionalProperties": { }
       },
       "Project": {
         "type": "object",
@@ -391,40 +466,95 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Dependency"
-            }
+            },
+            "nullable": true
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "nullable": true,
+            "x-searchable": true
           },
           "status": {
-            "$ref": "#/components/schemas/ProjectStatus"
+            "enum": [
+              "Active",
+              "Cancelled",
+              "Completed",
+              "OnHold",
+              "Planned"
+            ],
+            "type": "string",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProjectStatus"
+              }
+            ]
           },
           "tasks": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Task"
-            }
+            },
+            "nullable": true
           },
           "team": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Team"
-            }
+            },
+            "nullable": true
           },
           "timeline": {
-            "$ref": "#/components/schemas/Timeline"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Timeline"
+              }
+            ],
+            "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
+      },
+      "ProjectPaginatedResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            },
+            "nullable": true
+          },
+          "continuationToken": {
+            "type": "string",
+            "nullable": true
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
       },
       "ProjectSearchRequest": {
         "type": "object",
         "properties": {
+          "continuationToken": {
+            "type": "string",
+            "nullable": true
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
           "name": {
             "type": "string",
             "nullable": true
@@ -453,32 +583,77 @@
           "owner": {
             "type": "string",
             "nullable": true
-          },
-          "pageSize": {
-            "type": "integer",
-            "format": "int32",
-            "nullable": true
-          },
-          "continuationToken": {
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectStatus": {
+        "enum": [
+          "Active",
+          "Cancelled",
+          "Completed",
+          "OnHold",
+          "Planned"
+        ],
+        "type": "string",
+        "format": "int32"
+      },
+      "Role": {
+        "enum": [
+          "Designer",
+          "Developer",
+          "Manager",
+          "Qa"
+        ],
+        "type": "string",
+        "format": "int32"
+      },
+      "SearchParameter": {
+        "type": "object",
+        "properties": {
+          "field": {
             "type": "string",
             "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
-      "ProjectStatus": {
-        "type": "integer"
+      "SortField": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "nullable": true
+          },
+          "order": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SortOrder"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
       },
-      "Role": {
-        "type": "integer"
+      "SortOrder": {
+        "enum": [
+          "Asc",
+          "Desc"
+        ],
+        "type": "string",
+        "format": "int32"
       },
       "Task": {
         "type": "object",
         "properties": {
           "assignee": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "dueDate": {
             "type": "string",
@@ -486,29 +661,63 @@
             "nullable": true
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "status": {
-            "$ref": "#/components/schemas/TaskStatus"
+            "enum": [
+              "Done",
+              "InProgress",
+              "Review",
+              "Todo"
+            ],
+            "type": "string",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TaskStatus"
+              }
+            ]
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
       "TaskStatus": {
-        "type": "integer"
+        "enum": [
+          "Done",
+          "InProgress",
+          "Review",
+          "Todo"
+        ],
+        "type": "string",
+        "format": "int32"
       },
       "Team": {
         "type": "object",
         "properties": {
           "role": {
-            "$ref": "#/components/schemas/Role"
+            "enum": [
+              "Designer",
+              "Developer",
+              "Manager",
+              "Qa"
+            ],
+            "type": "string",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ]
           },
           "userId": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
       "Timeline": {
         "type": "object",
@@ -527,13 +736,9 @@
             "type": "string",
             "format": "date-time"
           }
-        }
+        },
+        "additionalProperties": false
       }
     }
-  },
-  "tags": [
-    {
-      "name": "CosmosAnalytics.ApiService"
-    }
-  ]
+  }
 }

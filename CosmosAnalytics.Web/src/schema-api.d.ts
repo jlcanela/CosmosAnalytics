@@ -45,7 +45,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["PaginatedResponseOfJsonElement"];
+                        "application/json": components["schemas"]["JsonElementPaginatedResponse"];
                     };
                 };
                 /** @description Internal Server Error */
@@ -92,7 +92,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["PaginatedResponseOfProject"];
+                        "application/json": components["schemas"]["ProjectPaginatedResponse"];
                     };
                 };
                 /** @description Internal Server Error */
@@ -114,7 +114,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/project-search": {
+    "/api/search-projects": {
         parameters: {
             query?: never;
             header?: never;
@@ -142,7 +142,55 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["PaginatedResponseOfProject"];
+                        "application/json": components["schemas"]["ProjectPaginatedResponse"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EntitySearchRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProjectPaginatedResponse"];
                     };
                 };
                 /** @description Internal Server Error */
@@ -295,20 +343,26 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Dependency: {
-            dependsOn?: string;
-            taskId?: string;
+            dependsOn?: string | null;
+            taskId?: string | null;
         };
-        PaginatedResponseOfJsonElement: {
-            items: unknown[];
-            continuationToken: string | null;
+        EntitySearchRequest: {
+            type?: string | null;
+            searchParameters?: components["schemas"]["SearchParameter"][] | null;
             /** Format: int32 */
-            count: number;
+            pageSize?: number | null;
+            continuationToken?: string | null;
+            sort?: components["schemas"]["SortField"][] | null;
+            fields?: string[] | null;
+            count?: boolean | null;
+            facets?: string[] | null;
+            version?: string | null;
         };
-        PaginatedResponseOfProject: {
-            items: components["schemas"]["Project"][];
-            continuationToken: string | null;
+        JsonElementPaginatedResponse: {
+            items?: unknown[] | null;
+            continuationToken?: string | null;
             /** Format: int32 */
-            count: number;
+            count?: number;
         };
         ProblemDetails: {
             type?: string | null;
@@ -317,18 +371,30 @@ export interface components {
             status?: number | null;
             detail?: string | null;
             instance?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         Project: {
-            dependencies?: components["schemas"]["Dependency"][];
-            description?: string;
-            id?: string;
-            name?: string;
-            status?: components["schemas"]["ProjectStatus"];
-            tasks?: components["schemas"]["Task"][];
-            team?: components["schemas"]["Team"][];
-            timeline?: components["schemas"]["Timeline"];
+            dependencies?: components["schemas"]["Dependency"][] | null;
+            description?: string | null;
+            id?: string | null;
+            name?: string | null;
+            /** @enum {string} */
+            status?: "Active" | "Cancelled" | "Completed" | "OnHold" | "Planned";
+            tasks?: components["schemas"]["Task"][] | null;
+            team?: components["schemas"]["Team"][] | null;
+            timeline?: components["schemas"]["Timeline"] | null;
+        };
+        ProjectPaginatedResponse: {
+            items?: components["schemas"]["Project"][] | null;
+            continuationToken?: string | null;
+            /** Format: int32 */
+            count?: number;
         };
         ProjectSearchRequest: {
+            continuationToken?: string | null;
+            /** Format: int32 */
+            pageSize?: number | null;
             name?: string | null;
             status?: string | null;
             /** Format: date-time */
@@ -337,25 +403,48 @@ export interface components {
             createdBefore?: string | null;
             tags?: string[] | null;
             owner?: string | null;
-            /** Format: int32 */
-            pageSize?: number | null;
-            continuationToken?: string | null;
         };
-        ProjectStatus: number;
-        Role: number;
+        /**
+         * Format: int32
+         * @enum {string}
+         */
+        ProjectStatus: "Active" | "Cancelled" | "Completed" | "OnHold" | "Planned";
+        /**
+         * Format: int32
+         * @enum {string}
+         */
+        Role: "Designer" | "Developer" | "Manager" | "Qa";
+        SearchParameter: {
+            field?: string | null;
+        };
+        SortField: {
+            field?: string | null;
+            order?: components["schemas"]["SortOrder"] | null;
+        };
+        /**
+         * Format: int32
+         * @enum {string}
+         */
+        SortOrder: "Asc" | "Desc";
         Task: {
-            assignee?: string;
-            description?: string;
+            assignee?: string | null;
+            description?: string | null;
             /** Format: date-time */
             dueDate?: string | null;
-            id?: string;
-            status?: components["schemas"]["TaskStatus"];
-            title?: string;
+            id?: string | null;
+            /** @enum {string} */
+            status?: "Done" | "InProgress" | "Review" | "Todo";
+            title?: string | null;
         };
-        TaskStatus: number;
+        /**
+         * Format: int32
+         * @enum {string}
+         */
+        TaskStatus: "Done" | "InProgress" | "Review" | "Todo";
         Team: {
-            role?: components["schemas"]["Role"];
-            userId?: string;
+            /** @enum {string} */
+            role?: "Designer" | "Developer" | "Manager" | "Qa";
+            userId?: string | null;
         };
         Timeline: {
             /** Format: date-time */

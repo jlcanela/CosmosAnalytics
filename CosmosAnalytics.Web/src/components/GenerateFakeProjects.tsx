@@ -10,7 +10,8 @@ import {
   Notification,
   Loader,
 } from "@mantine/core";
-import { IconCheck, IconX } from "@tabler/icons-react";
+
+import { CheckIcon, XMarkIcon } from "@heroicons/react/24/outline"
 import createFetchClient from "openapi-fetch";
 import createClient from "openapi-react-query";
 import type { paths } from "../schema-api";
@@ -39,7 +40,7 @@ export function GenerateFakeProjects() {
           setNotification({
             message: `Successfully generated ${data} fake project(s)!`,
             color: "green",
-            icon: <IconCheck size={18} />,
+            icon: <CheckIcon />,
           });
         },
         onError: (error: any) => {
@@ -48,7 +49,7 @@ export function GenerateFakeProjects() {
               error?.message ||
               "An error occurred while generating fake projects.",
             color: "red",
-            icon: <IconX size={18} />,
+            icon: <XMarkIcon />,
           });
         },
       }

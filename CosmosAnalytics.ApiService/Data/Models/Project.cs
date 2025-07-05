@@ -46,6 +46,7 @@ namespace ProjectModels
         /// </summary>
         [JsonPropertyName("name")]
         [JsonConverter(typeof(MinMaxLengthCheckConverter))]
+        [Searchable]
         public string Name { get; set; }
 
         /// <summary>

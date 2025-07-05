@@ -2,8 +2,6 @@ using ApiServices;
 using Azure.Storage.Blobs;
 using CosmosAnalytics.ApiService.Data;
 using Endpoints;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Mvc.ModelBinding.Binders;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.FileProviders;
 using System.Text.Json.Serialization;
@@ -52,8 +50,13 @@ namespace CosmosAnalytics.ApiService
 
             builder.Services.AddHostedService<StartupOrHostedService>();
 
-            builder.Services.AddOpenApi();
-            builder.Services.AddSwaggerUI();
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddSwaggerGen(c =>
+            {
+                c.SchemaFilter<SearchableSchemaFilter>();
+                c.SchemaFilter<StringEnumSchemaFilter>();
+                c.UseAllOfToExtendReferenceSchemas(); // Optional: for better inheritance support
+            });
 
             builder.Services.AddCors(options =>
             {
@@ -73,12 +76,7 @@ namespace CosmosAnalytics.ApiService
             });
 
             var app = builder.Build();
-
-            if (app.Environment.IsDevelopment())
-            {
-                app.MapOpenApi();
-                app.MapSwaggerUI();
-            }
+   
 
             app.MapGet("/swagger.help", () =>
             {
@@ -111,7 +109,13 @@ namespace CosmosAnalytics.ApiService
             app.MapFallbackToFile("index.html");
 
             app.UseExceptionHandler();
-            // app.MapFallbackToFile("{*path:nonfile}", "index.html");
+
+            if (app.Environment.IsDevelopment())
+            {
+                app.UseSwagger();
+                app.UseSwaggerUI();
+            }
+
             app.Run();
         }
     }

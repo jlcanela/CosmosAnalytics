@@ -27,7 +27,7 @@ var cosmos = builder.AddAzureCosmosDB("cosmos")
     .RunAsEmulator((emulator =>
     {
         emulator
-        .WithHttpEndpoint(targetPort: 1234, name: "explorer-port", isProxied: true)
+        .WithHttpsEndpoint(targetPort: 1234, name: "explorer-port", isProxied: true)
         .WithLifetime(ContainerLifetime.Persistent);
     }));
 #pragma warning restore ASPIRECOSMOSDB001

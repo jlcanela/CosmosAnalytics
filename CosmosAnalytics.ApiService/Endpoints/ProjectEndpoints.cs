@@ -1,6 +1,7 @@
 using ApiServices;
 using CosmosAnalytics.ApiService;
 using CosmosAnalytics.ApiService.Data;
+using EntitySearchApi.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Cosmos;
 using ProjectModels;
@@ -68,7 +69,7 @@ public static class ProjectEndpoints
         .Produces<PaginatedResponse<Project>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-        routes.MapPost("/project-search", async (
+        routes.MapPost("/search-projects", async (
             [FromBody] ProjectSearchRequest searchRequest,
             ProjectService service) =>
         {
@@ -85,6 +86,22 @@ public static class ProjectEndpoints
         .Produces<PaginatedResponse<Project>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+        routes.MapPost("/search", async (
+            [FromBody] EntitySearchRequest searchRequest,
+            ProjectService service) =>
+        {
+            try
+            {
+                var results = await service.SearchAsync(searchRequest);
+                return Results.Ok(results);
+            }
+            catch (CosmosException)
+            {
+                return Results.Problem("Failed to search projects in database");
+            }
+        })
+        .Produces<PaginatedResponse<Project>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         routes.MapPost("/export-all", async (ProjectService service,
          [FromQuery] bool compressed,

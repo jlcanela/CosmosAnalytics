@@ -3,11 +3,24 @@ using System.Text.Json;
 using ProjectModels;
 using Task = System.Threading.Tasks.Task;
 using System.Net.Http.Headers;
+using System.Text.Json.Serialization;
+using EntitySearchApi.Models;
+using Bogus.DataSets;
 
 namespace CosmosAnalytics.ApiService.Data
 {
 
-    public class ProjectSearchRequest
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+    [JsonDerivedType(typeof(ProjectSearchRequest), "search-project")]
+    public abstract class SearchRequest
+    {
+        // You can add common properties here if needed
+        public string? ContinuationToken { get; set; }
+        public int? PageSize { get; set; }
+
+    }
+
+    public class ProjectSearchRequest : SearchRequest
     {
         public string? Name { get; set; }
         public string? Status { get; set; }
@@ -15,9 +28,9 @@ namespace CosmosAnalytics.ApiService.Data
         public DateTime? CreatedBefore { get; set; }
         public List<string>? Tags { get; set; }
         public string? Owner { get; set; }
-        public int? PageSize { get; set; }
-        public string? ContinuationToken { get; set; }
+
     }
+
 
     public class ProjectRepository
     {
@@ -99,6 +112,139 @@ namespace CosmosAnalytics.ApiService.Data
                 newContinuationToken = response.ContinuationToken;
                 results.AddRange(response);
             }
+            return (results, newContinuationToken);
+        }
+
+        public async Task<(List<Project> Items, string? ContinuationToken)> SearchAsync(EntitySearchRequest searchRequest)
+        {
+            var sql = "SELECT * FROM c";
+            var filters = new List<string>();
+            var parameters = new Dictionary<string, object>();
+
+            if (searchRequest.SearchParameters != null)
+            {
+                for (int i = 0; i < searchRequest.SearchParameters.Count; i++)
+                {
+                    var sp = searchRequest.SearchParameters[i];
+                    var paramName = $"@param{i}";
+                    var field = sp.Field;
+
+                    switch (sp)
+                    {
+                        case StringSearchParameter ssp:
+                            switch (ssp.Operation)
+                            {
+                                case StringOperation.Equals:
+                                    filters.Add($"c.{field} = {paramName}");
+                                    parameters[paramName] = ssp.Value;
+                                    break;
+                                case StringOperation.Contains:
+                                    filters.Add($"CONTAINS(c.{field}, {paramName})");
+                                    parameters[paramName] = ssp.Value;
+                                    break;
+                                // Add more string operations as needed
+                                default:
+                                    throw new NotSupportedException($"String operation {ssp.Operation} not supported");
+                            }
+                            break;
+
+                        case EnumSearchParameter esp:
+                            switch (esp.Operation)
+                            {
+                                case EnumOperation.Equals:
+                                    // If multiple values, generate OR clause
+                                    if (esp.Value.Count > 1)
+                                    {
+                                        var orClauses = new List<string>();
+                                        for (int j = 0; j < esp.Value.Count; j++)
+                                        {
+                                            var enumParam = $"{paramName}_{j}";
+                                            orClauses.Add($"c.{field} = {enumParam}");
+                                            parameters[enumParam] = esp.Value[j];
+                                        }
+                                        filters.Add($"({string.Join(" OR ", orClauses)})");
+                                    }
+                                    else
+                                    {
+                                        filters.Add($"c.{field} = {paramName}");
+                                        parameters[paramName] = esp.Value[0];
+                                    }
+                                    break;
+                                case EnumOperation.Contains:
+                                    filters.Add($"ARRAY_CONTAINS({paramName}, c.{field})");
+                                    parameters[paramName] = esp.Value;
+                                    break;
+                                default:
+                                    throw new NotSupportedException($"Enum operation {esp.Operation} not supported");
+                            }
+                            break;
+
+                        case DateSearchParameter dsp:
+                            switch (dsp.Operation)
+                            {
+                                case DateOperation.Before:
+                                    filters.Add($"c.{field} < {paramName}");
+                                    parameters[paramName] = dsp.Value;
+                                    break;
+                                case DateOperation.After:
+                                    filters.Add($"c.{field} > {paramName}");
+                                    parameters[paramName] = dsp.Value;
+                                    break;
+                                default:
+                                    throw new NotSupportedException($"Date operation {dsp.Operation} not supported");
+                            }
+                            break;
+
+                        // Add handling for NumberSearchParameter, NumberRangeSearchParameter, DateRangeSearchParameter, UniversalSearchParameter as needed
+
+                        default:
+                            throw new NotSupportedException($"SearchParameter type {sp.GetType().Name} not supported");
+                    }
+                }
+            }
+
+            if (filters.Count > 0)
+            {
+                sql += " WHERE " + string.Join(" AND ", filters);
+            }
+
+            // Sorting
+            if (searchRequest.Sort != null && searchRequest.Sort.Count > 0)
+            {
+                var orderClauses = searchRequest.Sort
+                    .Select(sf => $"c.{sf.Field} {(sf.Order?.ToString().ToUpper() ?? "ASC")}");
+                sql += " ORDER BY " + string.Join(", ", orderClauses);
+            }
+            else
+            {
+                // sql += " ORDER BY c.name ASC"; // Default sort
+            }
+
+            _logger.LogInformation("SQL: " + sql);
+
+            var queryDef = new QueryDefinition(sql);
+            foreach (var param in parameters)
+            {
+                queryDef = queryDef.WithParameter(param.Key, param.Value);
+            }
+
+            var results = new List<Project>();
+            var queryOptions = new QueryRequestOptions { MaxItemCount = searchRequest.PageSize ?? -1 };
+
+            using var feed = _container.GetItemQueryIterator<Project>(
+                queryDef,
+                searchRequest.ContinuationToken,
+                queryOptions
+            );
+
+            string? newContinuationToken = null;
+            if (feed.HasMoreResults)
+            {
+                var response = await feed.ReadNextAsync();
+                newContinuationToken = response.ContinuationToken;
+                results.AddRange(response);
+            }
+
             return (results, newContinuationToken);
         }
 
