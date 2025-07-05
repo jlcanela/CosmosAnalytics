@@ -33,6 +33,7 @@ namespace ProjectModels
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         [JsonPropertyName("description")]
+        [Searchable]
         public string Description { get; set; }
 
         /// <summary>
@@ -53,6 +54,7 @@ namespace ProjectModels
         /// Current project status
         /// </summary>
         [JsonPropertyName("status")]
+        [Searchable]
         public ProjectStatus Status { get; set; }
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -168,7 +170,7 @@ namespace ProjectModels
         public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
             var value = reader.GetString();
-            if (value.Length >= 3)
+            if (value?.Length >= 3)
             {
                 return value;
             }

@@ -217,7 +217,7 @@ namespace CosmosAnalytics.ApiService.Data
             }
             else
             {
-                // sql += " ORDER BY c.name ASC"; // Default sort
+                sql += " ORDER BY c.name ASC"; // Default sort
             }
 
             _logger.LogInformation("SQL: " + sql);

@@ -471,7 +471,8 @@
           },
           "description": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "x-searchable": true
           },
           "id": {
             "type": "string",
@@ -495,7 +496,8 @@
               {
                 "$ref": "#/components/schemas/ProjectStatus"
               }
-            ]
+            ],
+            "x-searchable": true
           },
           "tasks": {
             "type": "array",
