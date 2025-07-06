@@ -45,10 +45,15 @@ namespace CosmosAnalytics.ApiService
             builder.Services.AddSingleton(serviceProvider =>
             {
                 var client = serviceProvider.GetRequiredService<CosmosClient>();
-                return client.GetDatabase("cosmosdb").GetContainer("projects");
+                var db = client.GetDatabase("cosmosdb");
+                var containers = new CosmosContainers(
+                    db.GetContainer("projects"),
+                    db.GetContainer("index")
+                        );
+                return containers;
             });
 
-            builder.Services.AddHostedService<StartupOrHostedService>();
+            // builder.Services.AddHostedService<StartupOrHostedService>();
 
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen(c =>

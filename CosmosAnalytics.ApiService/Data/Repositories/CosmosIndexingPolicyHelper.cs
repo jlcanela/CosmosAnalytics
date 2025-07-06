@@ -10,7 +10,7 @@ public class CosmosIndexingPolicyService
         _logger = logger;
     }
 
-    public async Task EnsureCompositeIndexAsync(Container container)
+    public async Task<bool> EnsureCompositeIndexAsync(Container container)
     {
         var containerResponse = await container.ReadContainerAsync();
         var containerProperties = containerResponse.Resource;
@@ -35,10 +35,12 @@ public class CosmosIndexingPolicyService
             indexingPolicy.CompositeIndexes.Add(desiredComposite);
             await container.ReplaceContainerAsync(containerProperties);
             _logger.LogInformation("Composite index added and container updated.");
+            return true;
         }
         else
         {
             _logger.LogInformation("Composite index already exists, no update needed.");
+            return false;
         }
     }
 }

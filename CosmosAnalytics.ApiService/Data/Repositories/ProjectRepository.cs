@@ -2,10 +2,11 @@ using Microsoft.Azure.Cosmos;
 using System.Text.Json;
 using ProjectModels;
 using Task = System.Threading.Tasks.Task;
-using System.Net.Http.Headers;
 using System.Text.Json.Serialization;
 using EntitySearchApi.Models;
-using Bogus.DataSets;
+using Newtonsoft.Json.Linq;
+using Jolt.Net;
+using System.Diagnostics;
 
 namespace CosmosAnalytics.ApiService.Data
 {
@@ -34,13 +35,37 @@ namespace CosmosAnalytics.ApiService.Data
 
     public class ProjectRepository
     {
-        private readonly Container _container;
+        private readonly JToken indexSpec = JToken.Parse(@"
+        [
+            {
+                ""operation"": ""shift"",
+                ""spec"": {
+                    ""id"": [""projectid"", ""itemid""],
+                    ""name"": ""index.name"",
+                    ""description"": ""index.description"",
+                    ""status"": ""index.status""                   
+                }
+            },
+            {
+                ""operation"": ""default"",
+                ""spec"": {
+                    ""id"": ""${id}"",
+                    ""type"": ""project-index""
+                }
+            }
+        ]");
+
+        private readonly Chainr _chainr;
+
+        private readonly Container _projectsContainer;
         private readonly ILogger<ProjectRepository> _logger;
 
-        public ProjectRepository(Container container, ILogger<ProjectRepository> logger)
+        public ProjectRepository(CosmosContainers containers, ILogger<ProjectRepository> logger)
         {
-            _container = container;
+            _projectsContainer = containers.Project();
             _logger = logger;
+            _chainr = Chainr.FromSpec(indexSpec);
+
         }
 
         public static string PascalToCamelCase(string s)
@@ -52,18 +77,35 @@ namespace CosmosAnalytics.ApiService.Data
             return char.ToLowerInvariant(s[0]) + s.Substring(1);
         }
 
-        public async Task<List<Project>> AddProjectsBulkAsync(IEnumerable<Project> projects)
+        public string CreateIndexDocument(Project project)
+        {
+            var json = JToken.Parse(JsonSerializer.Serialize(project)); 
+            return _chainr.Transform(json).ToString(Newtonsoft.Json.Formatting.None); ;
+        }
+
+        public async Task<int> AddProjectsBulkAsync(IEnumerable<Project> projects)
         {
             var tasks = new List<Task<ItemResponse<Project>>>();
+            var indexes = new List<Task<ItemResponse<JsonElement>>>();
 
             foreach (var project in projects)
             {
-                tasks.Add(_container.CreateItemAsync(project, new PartitionKey(project.Id)));
+                project.ProjectId = project.Id;
+                project.Type = "project";
+                tasks.Add(_projectsContainer.CreateItemAsync(project, new PartitionKey(project.Id)));
+                string guidString = Guid.NewGuid().ToString();
+                var json = CreateIndexDocument(project).Replace("${id}", guidString);
+                JsonDocument indexDocument = JsonDocument.Parse(json);
+                indexes.Add(_projectsContainer.CreateItemAsync(indexDocument.RootElement));
             }
 
             var results = await Task.WhenAll(tasks);
-
-            // You can handle failures here if needed (results may contain exceptions)
+            var resultsIndexes = await Task.WhenAll(indexes);
+            foreach (var r in resultsIndexes)
+            {
+                Activity.Current?.SetTag("audit", r.ToString());
+            }
+            
             var createdProjects = new List<Project>();
             foreach (var result in results)
             {
@@ -72,12 +114,12 @@ namespace CosmosAnalytics.ApiService.Data
                 // Optionally handle other status codes or exceptions
             }
 
-            return createdProjects;
+            return createdProjects.Count;
         }
 
         public async Task<Project?> AddProjectAsync(Project project)
         {
-            var response = await _container.CreateItemAsync(project, new PartitionKey(project.Id));
+            var response = await _projectsContainer.CreateItemAsync(project, new PartitionKey(project.Id));
             return response.Resource;
         }
 
@@ -87,7 +129,7 @@ namespace CosmosAnalytics.ApiService.Data
             var results = new List<JsonElement>();
             var queryOptions = new QueryRequestOptions { MaxItemCount = pageSize ?? -1 };
 
-            using var feed = _container.GetItemQueryIterator<JsonElement>(query, continuationToken, queryOptions);
+            using var feed = _projectsContainer.GetItemQueryIterator<JsonElement>(query, continuationToken, queryOptions);
             string? newContinuationToken = null;
             if (feed.HasMoreResults)
             {
@@ -104,7 +146,7 @@ namespace CosmosAnalytics.ApiService.Data
             var results = new List<Project>();
             var queryOptions = new QueryRequestOptions { MaxItemCount = pageSize ?? -1 };
 
-            using var feed = _container.GetItemQueryIterator<Project>(query, continuationToken, queryOptions);
+            using var feed = _projectsContainer.GetItemQueryIterator<Project>(query, continuationToken, queryOptions);
             string? newContinuationToken = null;
             if (feed.HasMoreResults)
             {
@@ -179,6 +221,7 @@ namespace CosmosAnalytics.ApiService.Data
                             }
                             break;
 
+
                         case DateSearchParameter dsp:
                             switch (dsp.Operation)
                             {
@@ -203,10 +246,8 @@ namespace CosmosAnalytics.ApiService.Data
                 }
             }
 
-            if (filters.Count > 0)
-            {
-                sql += " WHERE " + string.Join(" AND ", filters);
-            }
+            filters.Add("c.type = \"project\"");
+            sql += " WHERE " + string.Join(" AND ", filters);
 
             // Sorting
             if (searchRequest.Sort != null && searchRequest.Sort.Count > 0)
@@ -220,8 +261,6 @@ namespace CosmosAnalytics.ApiService.Data
                 sql += " ORDER BY c.name ASC"; // Default sort
             }
 
-            _logger.LogInformation("SQL: " + sql);
-
             var queryDef = new QueryDefinition(sql);
             foreach (var param in parameters)
             {
@@ -231,7 +270,7 @@ namespace CosmosAnalytics.ApiService.Data
             var results = new List<Project>();
             var queryOptions = new QueryRequestOptions { MaxItemCount = searchRequest.PageSize ?? -1 };
 
-            using var feed = _container.GetItemQueryIterator<Project>(
+            using var feed = _projectsContainer.GetItemQueryIterator<Project>(
                 queryDef,
                 searchRequest.ContinuationToken,
                 queryOptions
@@ -258,7 +297,6 @@ namespace CosmosAnalytics.ApiService.Data
             {
                 filters.Add("CONTAINS(c.name, @name)");
                 parameters.Add("@name", searchRequest.Name);
-                _logger.LogInformation("Name filter:" + "\"" + searchRequest.Name);
             }
             if (!string.IsNullOrEmpty(searchRequest.Status))
             {
@@ -308,7 +346,7 @@ namespace CosmosAnalytics.ApiService.Data
 
             _logger.BeginScope("Project Search");
 
-            using var feed = _container.GetItemQueryIterator<Project>(
+            using var feed = _projectsContainer.GetItemQueryIterator<Project>(
                 queryDef,
                 searchRequest.ContinuationToken,
                 queryOptions

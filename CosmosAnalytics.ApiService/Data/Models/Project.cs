@@ -34,13 +34,29 @@ namespace ProjectModels
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         [JsonPropertyName("description")]
         [Searchable]
+        [IndexedFullText]
         public string Description { get; set; }
 
         /// <summary>
         /// Unique project identifier
         /// </summary>
         [JsonPropertyName("id")]
+        [Key]
         public string Id { get; set; }
+
+        /// <summary>
+        /// Unique project identifier
+        /// </summary>
+        [JsonPropertyName("projectid")]
+        public string ProjectId { get; set; }
+
+
+        /// <summary>
+        /// Unique project identifier
+        /// </summary>
+        [JsonPropertyName("type")]
+        public string Type { get; set; }
+
 
         /// <summary>
         /// Project name
@@ -48,6 +64,7 @@ namespace ProjectModels
         [JsonPropertyName("name")]
         [JsonConverter(typeof(MinMaxLengthCheckConverter))]
         [Searchable]
+        [IndexedFullText]
         public string Name { get; set; }
 
         /// <summary>
@@ -55,6 +72,7 @@ namespace ProjectModels
         /// </summary>
         [JsonPropertyName("status")]
         [Searchable]
+        [Indexed]
         public ProjectStatus Status { get; set; }
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -33,8 +33,7 @@ var cosmos = builder.AddAzureCosmosDB("cosmos")
 #pragma warning restore ASPIRECOSMOSDB001
 
 var cosmosdb = cosmos.AddCosmosDatabase("cosmosdb");
-var container = cosmosdb.AddContainer("projects", "/id"); // Partition key path
-
+var container = cosmosdb.AddContainer("projects", "/projectid");
 
 var api = builder.AddProject<Projects.CosmosAnalytics_ApiService>("apiservice")
     .WithReference(container)

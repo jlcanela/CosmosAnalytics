@@ -10,20 +10,23 @@ using EntitySearchApi.Models;
 
 namespace ApiServices;
 
-
-
-
 public class ProjectService
 {
     private readonly ProjectRepository _repository;
     private readonly ILogger<ProjectService> _logger;
     private readonly BlobServiceClient _blobServiceClient;
 
-    public ProjectService(ProjectRepository repository, ILogger<ProjectService> logger, BlobServiceClient blobServiceClient)
+    private readonly CosmosIndexingPolicyService _indexingService;
+
+    private readonly CosmosContainers _containers;
+
+    public ProjectService(ProjectRepository repository, ILogger<ProjectService> logger, BlobServiceClient blobServiceClient, CosmosIndexingPolicyService indexingService, CosmosContainers containers)
     {
         _repository = repository;
         _logger = logger;
         _blobServiceClient = blobServiceClient;
+        _indexingService = indexingService;
+        _containers = containers;
     }
 
     public async Task<int> GenerateSampleProject(int size)
@@ -36,7 +39,7 @@ public class ProjectService
             projects.Add(project);
         }
         var res = await _repository.AddProjectsBulkAsync(projects);
-        return res.Count;
+        return res;
     }
 
     public async Task<int> GenerateSampleProjectSimple(int size)
@@ -58,6 +61,19 @@ public class ProjectService
             var inserted = await _repository.AddProjectAsync(project);
             _logger.LogInformation("Inserted project: {Id}", project.Id);
             return inserted;
+        }
+        catch (CosmosException ex)
+        {
+            _logger.LogError(ex, "Failed to insert project");
+            throw;
+        }
+    }
+
+    public async Task<bool> Init()
+    {
+        try
+        {            
+            return await _indexingService.EnsureCompositeIndexAsync(_containers.Index());
         }
         catch (CosmosException ex)
         {

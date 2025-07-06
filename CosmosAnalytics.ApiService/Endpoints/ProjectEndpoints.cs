@@ -15,6 +15,23 @@ public static class ProjectEndpoints
     public static IEndpointRouteBuilder MapProjectEndpoints(this IEndpointRouteBuilder routes)
     //    public static void MapProjectEndpoints(this WebApplication app)
     {
+        routes.MapPost("/init", async (
+            ProjectService service,
+            ILogger<ProjectService> logger) =>
+        {
+            try
+            {
+                var created = await service.Init();
+                return Results.Json(created);
+            }
+            catch (CosmosException)
+            {
+                return Results.Problem("Failed to save project to database");
+            }
+        }).WithName("Init")
+        .Produces<bool>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status500InternalServerError);
+
         routes.MapPost("/generate-sample", async (
             ProjectService service,
             ILogger<ProjectService> logger,
