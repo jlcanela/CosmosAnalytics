@@ -79,7 +79,10 @@ namespace CosmosAnalytics.ApiService.Data
 
         public string CreateIndexDocument(Project project)
         {
-            var json = JToken.Parse(JsonSerializer.Serialize(project)); 
+            var options = new JsonSerializerOptions();
+            options.Converters.Add(new JsonStringEnumConverter());
+
+            var json = JToken.Parse(JsonSerializer.Serialize(project, options));
             return _chainr.Transform(json).ToString(Newtonsoft.Json.Formatting.None); ;
         }
 
@@ -105,7 +108,7 @@ namespace CosmosAnalytics.ApiService.Data
             {
                 Activity.Current?.SetTag("audit", r.ToString());
             }
-            
+
             var createdProjects = new List<Project>();
             foreach (var result in results)
             {
@@ -159,7 +162,7 @@ namespace CosmosAnalytics.ApiService.Data
 
         public async Task<(List<Project> Items, string? ContinuationToken)> SearchAsync(EntitySearchRequest searchRequest)
         {
-            var sql = "SELECT * FROM c";
+            var sql = "SELECT c.itemid FROM c";
             var filters = new List<string>();
             var parameters = new Dictionary<string, object>();
 
@@ -177,11 +180,11 @@ namespace CosmosAnalytics.ApiService.Data
                             switch (ssp.Operation)
                             {
                                 case StringOperation.Equals:
-                                    filters.Add($"c.{field} = {paramName}");
+                                    filters.Add($"c.index.{field} = {paramName}");
                                     parameters[paramName] = ssp.Value;
                                     break;
                                 case StringOperation.Contains:
-                                    filters.Add($"CONTAINS(c.{field}, {paramName})");
+                                    filters.Add($"CONTAINS(c.index.{field}, {paramName})");
                                     parameters[paramName] = ssp.Value;
                                     break;
                                 // Add more string operations as needed
@@ -201,19 +204,19 @@ namespace CosmosAnalytics.ApiService.Data
                                         for (int j = 0; j < esp.Value.Count; j++)
                                         {
                                             var enumParam = $"{paramName}_{j}";
-                                            orClauses.Add($"c.{field} = {enumParam}");
+                                            orClauses.Add($"c.index.{field} = {enumParam}");
                                             parameters[enumParam] = esp.Value[j];
                                         }
                                         filters.Add($"({string.Join(" OR ", orClauses)})");
                                     }
                                     else
                                     {
-                                        filters.Add($"c.{field} = {paramName}");
+                                        filters.Add($"c.index.{field} = {paramName}");
                                         parameters[paramName] = esp.Value[0];
                                     }
                                     break;
                                 case EnumOperation.Contains:
-                                    filters.Add($"ARRAY_CONTAINS({paramName}, c.{field})");
+                                    filters.Add($"ARRAY_CONTAINS({paramName}, c.index.{field})");
                                     parameters[paramName] = esp.Value;
                                     break;
                                 default:
@@ -226,11 +229,11 @@ namespace CosmosAnalytics.ApiService.Data
                             switch (dsp.Operation)
                             {
                                 case DateOperation.Before:
-                                    filters.Add($"c.{field} < {paramName}");
+                                    filters.Add($"c.index.{field} < {paramName}");
                                     parameters[paramName] = dsp.Value;
                                     break;
                                 case DateOperation.After:
-                                    filters.Add($"c.{field} > {paramName}");
+                                    filters.Add($"c.index.{field} > {paramName}");
                                     parameters[paramName] = dsp.Value;
                                     break;
                                 default:
@@ -246,7 +249,7 @@ namespace CosmosAnalytics.ApiService.Data
                 }
             }
 
-            filters.Add("c.type = \"project\"");
+            filters.Add("c.type = \"project-index\"");
             sql += " WHERE " + string.Join(" AND ", filters);
 
             // Sorting
@@ -261,30 +264,63 @@ namespace CosmosAnalytics.ApiService.Data
                 sql += " ORDER BY c.name ASC"; // Default sort
             }
 
+            _logger.LogInformation($"Search SQL: {sql}");
+
             var queryDef = new QueryDefinition(sql);
             foreach (var param in parameters)
             {
                 queryDef = queryDef.WithParameter(param.Key, param.Value);
             }
 
-            var results = new List<Project>();
             var queryOptions = new QueryRequestOptions { MaxItemCount = searchRequest.PageSize ?? -1 };
 
-            using var feed = _projectsContainer.GetItemQueryIterator<Project>(
-                queryDef,
-                searchRequest.ContinuationToken,
-                queryOptions
-            );
-
             string? newContinuationToken = null;
-            if (feed.HasMoreResults)
+            var itemIds = new List<string>();
+            using (var indexFeed = _projectsContainer.GetItemQueryIterator<dynamic>(queryDef, searchRequest.ContinuationToken, queryOptions))
             {
-                var response = await feed.ReadNextAsync();
-                newContinuationToken = response.ContinuationToken;
-                results.AddRange(response);
+                if (indexFeed.HasMoreResults)
+                {
+                    var response = await indexFeed.ReadNextAsync();
+                    newContinuationToken = response.ContinuationToken;
+                    foreach (var doc in response)
+                    {
+                        // Cast to JsonElement
+                        JsonElement element = (JsonElement)doc;
+
+                        if (element.TryGetProperty("itemid", out JsonElement itemIdElement))
+                        {
+                            string itemId = itemIdElement.GetString();
+                            itemIds.Add(itemId);
+                            _logger.LogInformation($"itemid: {itemId}");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("itemid property not found in document.");
+                        }
+                    }
+                }
             }
 
-            return (results, newContinuationToken);
+            if (itemIds.Count == 0)
+                return (new List<Project>(), null);
+
+            var inClause = string.Join(", ", itemIds.Select(id => $"'{id}'"));
+            var projectSql = $"SELECT * FROM c WHERE c.id IN ({inClause}) AND c.type = 'project'";
+            _logger.LogInformation($"Project SQL: {projectSql}");
+
+            var projectQueryDef = new QueryDefinition(projectSql);
+            var results = new List<Project>();
+            using (var projectFeed = _projectsContainer.GetItemQueryIterator<Project>(projectQueryDef))
+            {
+                if (projectFeed.HasMoreResults)
+                {
+                    var response = await projectFeed.ReadNextAsync();
+                    results.AddRange(response);
+                    return (results, newContinuationToken);
+                }
+            }
+            return (results, null);
+
         }
 
         public async Task<(List<Project> Items, string? ContinuationToken)> SearchProjectsAsync(ProjectSearchRequest searchRequest)
