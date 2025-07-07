@@ -59,7 +59,6 @@ public class ProjectService
         try
         {
             var inserted = await _repository.AddProjectAsync(project);
-            _logger.LogInformation("Inserted project: {Id}", project.Id);
             return inserted;
         }
         catch (CosmosException ex)
@@ -73,7 +72,7 @@ public class ProjectService
     {
         try
         {            
-            return await _indexingService.EnsureCompositeIndexAsync(_containers.Index());
+            return await _indexingService.EnsureCompositeIndexAsync(_containers.Project());
         }
         catch (CosmosException ex)
         {
@@ -153,12 +152,6 @@ public class ProjectService
         int? pageSize, string? continuationToken)
     {
         var (items, token) = await _repository.GetProjectsAsync(pageSize, continuationToken);
-        return new PaginatedResponse<Project>(items, token, items.Count);
-    }
-
-    public async Task<PaginatedResponse<Project>> SearchProjectsAsync(ProjectSearchRequest searchRequest)
-    {
-        var (items, token) = await _repository.SearchProjectsAsync(searchRequest);
         return new PaginatedResponse<Project>(items, token, items.Count);
     }
 

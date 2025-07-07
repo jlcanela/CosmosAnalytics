@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using Jolt.Net;
 using System.Diagnostics;
 
+
 namespace CosmosAnalytics.ApiService.Data
 {
 
@@ -256,15 +257,13 @@ namespace CosmosAnalytics.ApiService.Data
             if (searchRequest.Sort != null && searchRequest.Sort.Count > 0)
             {
                 var orderClauses = searchRequest.Sort
-                    .Select(sf => $"c.{sf.Field} {(sf.Order?.ToString().ToUpper() ?? "ASC")}");
+                    .Select(sf => $"c.index.{sf.Field} {(sf.Order?.ToString().ToUpper() ?? "ASC")}");
                 sql += " ORDER BY " + string.Join(", ", orderClauses);
             }
             else
             {
-                sql += " ORDER BY c.name ASC"; // Default sort
+                sql += " ORDER BY c.index.name ASC"; // Default sort
             }
-
-            _logger.LogInformation($"Search SQL: {sql}");
 
             var queryDef = new QueryDefinition(sql);
             foreach (var param in parameters)
@@ -291,7 +290,6 @@ namespace CosmosAnalytics.ApiService.Data
                         {
                             string itemId = itemIdElement.GetString();
                             itemIds.Add(itemId);
-                            _logger.LogInformation($"itemid: {itemId}");
                         }
                         else
                         {
@@ -306,9 +304,9 @@ namespace CosmosAnalytics.ApiService.Data
 
             var inClause = string.Join(", ", itemIds.Select(id => $"'{id}'"));
             var projectSql = $"SELECT * FROM c WHERE c.id IN ({inClause}) AND c.type = 'project'";
-            _logger.LogInformation($"Project SQL: {projectSql}");
 
             var projectQueryDef = new QueryDefinition(projectSql);
+
             var results = new List<Project>();
             using (var projectFeed = _projectsContainer.GetItemQueryIterator<Project>(projectQueryDef))
             {
@@ -316,90 +314,24 @@ namespace CosmosAnalytics.ApiService.Data
                 {
                     var response = await projectFeed.ReadNextAsync();
                     results.AddRange(response);
-                    return (results, newContinuationToken);
+                    //return (results, newContinuationToken);
                 }
             }
-            return (results, null);
 
-        }
+            // After fetching 'results' from the projects container
+            var resultsDict = results.ToDictionary(p => p.Id, p => p);
 
-        public async Task<(List<Project> Items, string? ContinuationToken)> SearchProjectsAsync(ProjectSearchRequest searchRequest)
-        {
-            var sql = "SELECT * FROM c";
-            var filters = new List<string>();
-            var parameters = new Dictionary<string, object>();
-
-            if (!string.IsNullOrEmpty(searchRequest.Name))
+            // Order results according to itemIds
+            var orderedResults = new List<Project>();
+            foreach (var id in itemIds)
             {
-                filters.Add("CONTAINS(c.name, @name)");
-                parameters.Add("@name", searchRequest.Name);
+                if (resultsDict.TryGetValue(id, out var project))
+                {
+                    orderedResults.Add(project);
+                }
             }
-            if (!string.IsNullOrEmpty(searchRequest.Status))
-            {
-                filters.Add("c.status = @status");
-                parameters.Add("@status", searchRequest.Status);
-            }
-            if (searchRequest.CreatedAfter.HasValue)
-            {
-                filters.Add("c.created >= @createdAfter");
-                parameters.Add("@createdAfter", searchRequest.CreatedAfter.Value);
-            }
-            if (searchRequest.CreatedBefore.HasValue)
-            {
-                filters.Add("c.created <= @createdBefore");
-                parameters.Add("@createdBefore", searchRequest.CreatedBefore.Value);
-            }
-            if (!string.IsNullOrEmpty(searchRequest.Owner))
-            {
-                filters.Add("c.owner = @owner");
-                parameters.Add("@owner", searchRequest.Owner);
-            }
-            if (searchRequest.Tags != null && searchRequest.Tags.Count > 0)
-            {
-                filters.Add("ARRAY_CONTAINS(@tags, t) IN (SELECT VALUE t FROM t IN c.tags)");
-                parameters.Add("@tags", searchRequest.Tags);
-            }
+            return (orderedResults, newContinuationToken);
 
-            if (filters.Count > 0)
-            {
-                sql += " WHERE " + string.Join(" AND ", filters);
-            }
-
-            sql += " ORDER BY c.name ASC";
-
-            var queryDef = new QueryDefinition(sql);
-
-            foreach (var param in parameters)
-            {
-                queryDef = queryDef.WithParameter(param.Key, param.Value);
-                Console.WriteLine(param.Key + "=" + param.Value);
-            }
-
-            Console.WriteLine(queryDef.QueryText);
-
-            var results = new List<Project>();
-            var queryOptions = new QueryRequestOptions { MaxItemCount = searchRequest.PageSize ?? -1 };
-
-            _logger.BeginScope("Project Search");
-
-            using var feed = _projectsContainer.GetItemQueryIterator<Project>(
-                queryDef,
-                searchRequest.ContinuationToken,
-                queryOptions
-            );
-
-            string? newContinuationToken = null;
-            if (feed.HasMoreResults)
-            {
-                var response = await feed.ReadNextAsync();
-                newContinuationToken = response.ContinuationToken;
-                results.AddRange(response);
-            }
-
-            _logger.LogInformation("Result Count:" + results.Count);
-
-
-            return (results, newContinuationToken);
         }
 
     }

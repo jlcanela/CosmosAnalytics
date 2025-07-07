@@ -20,7 +20,7 @@ public class CosmosIndexingPolicyService
         var desiredComposite = new Collection<CompositePath>
         {
             new CompositePath { Path = "/id", Order = CompositePathSortOrder.Ascending },
-            new CompositePath { Path = "/name", Order = CompositePathSortOrder.Ascending }
+            new CompositePath { Path = "/index/name", Order = CompositePathSortOrder.Ascending }
         };
 
         // Check if the composite index already exists

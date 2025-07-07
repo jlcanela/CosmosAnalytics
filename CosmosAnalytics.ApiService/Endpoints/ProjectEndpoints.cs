@@ -86,23 +86,6 @@ public static class ProjectEndpoints
         .Produces<PaginatedResponse<Project>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-        routes.MapPost("/search-projects", async (
-            [FromBody] ProjectSearchRequest searchRequest,
-            ProjectService service) =>
-        {
-            try
-            {
-                var results = await service.SearchProjectsAsync(searchRequest);
-                return Results.Ok(results);
-            }
-            catch (CosmosException)
-            {
-                return Results.Problem("Failed to search projects in database");
-            }
-        })
-        .Produces<PaginatedResponse<Project>>(StatusCodes.Status200OK)
-        .ProducesProblem(StatusCodes.Status500InternalServerError);
-
         routes.MapPost("/search", async (
             [FromBody] EntitySearchRequest searchRequest,
             ProjectService service) =>
