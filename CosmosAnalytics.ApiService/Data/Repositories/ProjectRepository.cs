@@ -53,6 +53,12 @@ namespace CosmosAnalytics.ApiService.Data
                     ""id"": ""${id}"",
                     ""type"": ""project-index""
                 }
+            },
+            {
+                ""operation"": ""ft"",
+                ""spec"": {
+                    ""fields"": [ ""name"", ""description""] 
+                }
             }
         ]");
 
@@ -65,8 +71,10 @@ namespace CosmosAnalytics.ApiService.Data
         {
             _projectsContainer = containers.Project();
             _logger = logger;
-            _chainr = Chainr.FromSpec(indexSpec);
-
+            _chainr = Chainr.FromSpec(indexSpec, new Dictionary<string, Type>
+            {
+                { "ft", typeof(FtTransform) }
+            });
         }
 
         public static string PascalToCamelCase(string s)
@@ -180,15 +188,31 @@ namespace CosmosAnalytics.ApiService.Data
                         case StringSearchParameter ssp:
                             switch (ssp.Operation)
                             {
+                                // Partially match for any substring
                                 case StringOperation.Equals:
                                     filters.Add($"c.index.{field} = {paramName}");
                                     parameters[paramName] = ssp.Value;
                                     break;
-                                case StringOperation.Contains:
-                                    filters.Add($"CONTAINS(c.index.{field}, {paramName})");
-                                    parameters[paramName] = ssp.Value;
-                                    break;
-                                // Add more string operations as needed
+                                    case StringOperation.Contains:
+                                    {
+                                        var tokens = LowercaseAsciiFoldingAnalyzer.AnalyzeText(ssp.Value.ToString());
+                                        var orConditions = new List<string>();
+                                        for (int j = 0; j < tokens.Length; j++)
+                                        {
+                                            string tokenParam = $"{paramName}_{j}";
+                                            orConditions.Add($"CONTAINS(t, {tokenParam})");
+                                            parameters[tokenParam] = tokens[j];
+                                        }
+
+                                        string orClause = string.Join(" OR ", orConditions);
+                                        filters.Add($@"
+                                            EXISTS (
+                                                SELECT VALUE t
+                                                FROM t IN c.index.{field}_ft
+                                                WHERE {orClause}
+                                            )");
+                                        break;
+                                    }
                                 default:
                                     throw new NotSupportedException($"String operation {ssp.Operation} not supported");
                             }
@@ -252,6 +276,10 @@ namespace CosmosAnalytics.ApiService.Data
 
             filters.Add("c.type = \"project-index\"");
             sql += " WHERE " + string.Join(" AND ", filters);
+
+            _logger.LogInformation($"SQL query: {sql}");
+            string jsonString = JsonSerializer.Serialize(parameters); 
+            _logger.LogInformation($"parameters: {jsonString}");
 
             // Sorting
             if (searchRequest.Sort != null && searchRequest.Sort.Count > 0)

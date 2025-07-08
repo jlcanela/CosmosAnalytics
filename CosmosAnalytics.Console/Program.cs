@@ -1,6 +1,4 @@
 ﻿// See https://aka.ms/new-console-template for more information
-using Newtonsoft.Json.Linq;
-using Jolt.Net;
 
 JToken indexSpec = JToken.Parse(@"
       [
@@ -31,7 +29,11 @@ JToken indexSpec = JToken.Parse(@"
     }
 ]");
 
-var chainr = Chainr.FromSpec(indexSpec);
+
+var customTransforms = new Dictionary<string, Type>();
+customTransforms.Add("ft",  typeof(FtTransform));
+
+var chainr = Chainr.FromSpec(indexSpec, customTransforms);
 
 var json2 = @"{
     ""rating"": {
@@ -47,3 +49,6 @@ var json2 = @"{
 var output = chainr.Transform(JToken.Parse(json2));
 
 Console.WriteLine(output.ToString());
+
+var result = LowercaseAsciiFoldingAnalyzer.ProcessText("Éléphant Café");
+Console.WriteLine(string.Join(",",  result));
