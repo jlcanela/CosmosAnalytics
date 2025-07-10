@@ -7,7 +7,8 @@ using EntitySearchApi.Models;
 using Newtonsoft.Json.Linq;
 using Jolt.Net;
 using System.Diagnostics;
-
+using Microsoft.Azure.Cosmos.Linq;
+using System.Linq.Expressions;
 
 namespace CosmosAnalytics.ApiService.Data
 {
@@ -32,6 +33,45 @@ namespace CosmosAnalytics.ApiService.Data
         public string? Owner { get; set; }
 
     }
+
+    public class ProjectIndex
+    {
+        [JsonPropertyName("projectid")]
+        public string ProjectId { get; set; }
+
+        [JsonPropertyName("itemid")]
+        public string ItemId { get; set; }
+
+        [JsonPropertyName("index")]
+        public ProjectIndexFields Index { get; set; }
+
+        [JsonPropertyName("id")]
+        public string Id { get; set; }
+
+        [JsonPropertyName("type")]
+        public string Type { get; set; }
+
+
+    }
+
+    public class ProjectIndexFields
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; }
+
+        [JsonPropertyName("description")]
+        public string Description { get; set; }
+
+        [JsonPropertyName("status")]
+        public string Status { get; set; }
+
+        [JsonPropertyName("name_ft")]
+        public List<string> NameFullText { get; set; }
+
+        [JsonPropertyName("description_ft")]
+        public List<string> DescriptionFullText { get; set; }
+    }
+
 
 
     public class ProjectRepository
@@ -167,6 +207,247 @@ namespace CosmosAnalytics.ApiService.Data
                 results.AddRange(response);
             }
             return (results, newContinuationToken);
+
+        }
+
+        // [Partial Implementation] of SearchAsync using LINQ does not support partial match but only full matches
+        // diacritic aware search is using an array representation of the string
+        // according to https://learn.microsoft.com/en-us/azure/cosmos-db/nosql/query/linq-to-sql 
+        // p.Index.NameFullText.Contains(tokens[0])) map to ARRAY_CONTAINS
+        // according to https://learn.microsoft.com/en-us/azure/cosmos-db/nosql/query/array-contains
+        // bool_expr of ARRAY_CONTAINS(<array_expr>, <expr> [, <bool_expr>]) is not accessible from LINQ Contains
+        // => partial search is not possible as bool_expr default value "false" is a full match contains 
+        // Additionnaly the typesafe approach with Linq totatly contradicts the dynamic approach of using the EntitySearchRequest model
+        public async Task<(List<Project> Items, string? ContinuationToken)> SearchWithLinqAsync(EntitySearchRequest searchRequest)
+        {
+            IQueryable<ProjectIndex> query = _projectsContainer.GetItemLinqQueryable<ProjectIndex>(allowSynchronousQueryExecution: true);
+
+            // Build filters (all direct property access, no predicate composition)
+            if (searchRequest.SearchParameters != null)
+            {
+                foreach (var sp in searchRequest.SearchParameters)
+                {
+                    var field = sp.Field.ToLowerInvariant();
+
+                    switch (sp)
+                    {
+                        case StringSearchParameter ssp:
+                            switch (ssp.Operation)
+                            {
+                                case StringOperation.Equals:
+                                    if (field == "name")
+                                        query = query.Where(p => p.Index.Name == ssp.Value);
+                                    else if (field == "description")
+                                        query = query.Where(p => p.Index.Description == ssp.Value);
+                                    else if (field == "status")
+                                        query = query.Where(p => p.Index.Status == ssp.Value);
+                                    else
+                                        throw new NotSupportedException($"Field {field} is not supported for string search.");
+                                    break;
+
+                                case StringOperation.Contains:
+                                    var tokens = LowercaseAsciiFoldingAnalyzer.AnalyzeText(ssp.Value?.ToString() ?? "");
+                                    if (tokens.Length == 0)
+                                        break;
+                                    if (field == "name")
+                                    {
+                                        if (tokens.Length == 1)
+                                            query = query.Where(p => p.Index.NameFullText.Contains(tokens[0]));
+                                        else if (tokens.Length == 2)
+                                            query = query.Where(p => p.Index.NameFullText.Contains(tokens[0]) || p.Index.NameFullText.Contains(tokens[1]));
+                                        else if (tokens.Length == 3)
+                                            query = query.Where(p => p.Index.NameFullText.Contains(tokens[0]) || p.Index.NameFullText.Contains(tokens[1]) || p.Index.NameFullText.Contains(tokens[2]));
+                                        else
+                                            throw new NotSupportedException("Too many tokens for 'Contains' search. Please limit to 3.");
+                                    }
+                                    else if (field == "description")
+                                    {
+                                        if (tokens.Length == 1)
+                                            query = query.Where(p => p.Index.DescriptionFullText.Contains(tokens[0]));
+                                        else if (tokens.Length == 2)
+                                            query = query.Where(p => p.Index.DescriptionFullText.Contains(tokens[0]) || p.Index.DescriptionFullText.Contains(tokens[1]));
+                                        else if (tokens.Length == 3)
+                                            query = query.Where(p => p.Index.DescriptionFullText.Contains(tokens[0]) || p.Index.DescriptionFullText.Contains(tokens[1]) || p.Index.DescriptionFullText.Contains(tokens[2]));
+                                        else
+                                            throw new NotSupportedException("Too many tokens for 'Contains' search. Please limit to 3.");
+                                    }
+                                    else
+                                        throw new NotSupportedException($"Field {field} is not supported for string contains search.");
+                                    break;
+
+                                default:
+                                    throw new NotSupportedException($"String operation {ssp.Operation} not supported");
+                            }
+                            break;
+
+                        case EnumSearchParameter esp:
+                            switch (esp.Operation)
+                            {
+                                case EnumOperation.Equals:
+                                    if (esp.Value.Count == 1)
+                                    {
+                                        var value = esp.Value[0];
+                                        if (field == "name")
+                                            query = query.Where(p => p.Index.Name == value);
+                                        else if (field == "description")
+                                            query = query.Where(p => p.Index.Description == value);
+                                        else if (field == "status")
+                                            query = query.Where(p => p.Index.Status == value);
+                                        else
+                                            throw new NotSupportedException($"Field {field} is not supported for enum equals search.");
+                                    }
+                                    else if (esp.Value.Count == 2)
+                                    {
+                                        var v1 = esp.Value[0];
+                                        var v2 = esp.Value[1];
+                                        if (field == "name")
+                                            query = query.Where(p => p.Index.Name == v1 || p.Index.Name == v2);
+                                        else if (field == "description")
+                                            query = query.Where(p => p.Index.Description == v1 || p.Index.Description == v2);
+                                        else if (field == "status")
+                                            query = query.Where(p => p.Index.Status == v1 || p.Index.Status == v2);
+                                        else
+                                            throw new NotSupportedException($"Field {field} is not supported for enum equals search.");
+                                    }
+                                    else if (esp.Value.Count == 3)
+                                    {
+                                        var v1 = esp.Value[0];
+                                        var v2 = esp.Value[1];
+                                        var v3 = esp.Value[2];
+                                        if (field == "name")
+                                            query = query.Where(p => p.Index.Name == v1 || p.Index.Name == v2 || p.Index.Name == v3);
+                                        else if (field == "description")
+                                            query = query.Where(p => p.Index.Description == v1 || p.Index.Description == v2 || p.Index.Description == v3);
+                                        else if (field == "status")
+                                            query = query.Where(p => p.Index.Status == v1 || p.Index.Status == v2 || p.Index.Status == v3);
+                                        else
+                                            throw new NotSupportedException($"Field {field} is not supported for enum equals search.");
+                                    }
+                                    else
+                                    {
+                                        throw new NotSupportedException("Too many values for EnumOperation.Equals. Please limit to 3.");
+                                    }
+                                    break;
+
+                                case EnumOperation.Contains:
+                                    if (field == "name")
+                                        query = query.Where(p => esp.Value.Contains(p.Index.Name));
+                                    else if (field == "description")
+                                        query = query.Where(p => esp.Value.Contains(p.Index.Description));
+                                    else if (field == "status")
+                                        query = query.Where(p => esp.Value.Contains(p.Index.Status));
+                                    else
+                                        throw new NotSupportedException($"Field {field} is not supported for enum contains search.");
+                                    break;
+
+                                default:
+                                    throw new NotSupportedException($"Enum operation {esp.Operation} not supported");
+                            }
+                            break;
+
+                        case DateSearchParameter dsp:
+                            throw new NotSupportedException($"Date operation {dsp.Operation} not supported on ProjectIndex");
+
+                        default:
+                            throw new NotSupportedException($"SearchParameter type {sp.GetType().Name} not supported");
+                    }
+                }
+            }
+
+            // Filter by type
+            query = query.Where(p => p.Type == "project-index");
+
+            // Sorting
+            if (searchRequest.Sort != null && searchRequest.Sort.Count > 0)
+            {
+                IOrderedQueryable<ProjectIndex>? orderedQuery = null;
+                foreach (var sortField in searchRequest.Sort)
+                {
+                    var sortFieldLower = sortField.Field.ToLowerInvariant();
+                    if (orderedQuery == null)
+                    {
+                        if (sortFieldLower == "name")
+                            orderedQuery = sortField.Order == SortOrder.Desc
+                                ? query.OrderByDescending(p => p.Index.Name)
+                                : query.OrderBy(p => p.Index.Name);
+                        else if (sortFieldLower == "description")
+                            orderedQuery = sortField.Order == SortOrder.Desc
+                                ? query.OrderByDescending(p => p.Index.Description)
+                                : query.OrderBy(p => p.Index.Description);
+                        else if (sortFieldLower == "status")
+                            orderedQuery = sortField.Order == SortOrder.Desc
+                                ? query.OrderByDescending(p => p.Index.Status)
+                                : query.OrderBy(p => p.Index.Status);
+                        else
+                            throw new NotSupportedException($"Sort field {sortFieldLower} is not supported.");
+                    }
+                    else
+                    {
+                        if (sortFieldLower == "name")
+                            orderedQuery = sortField.Order == SortOrder.Desc
+                                ? orderedQuery.ThenByDescending(p => p.Index.Name)
+                                : orderedQuery.ThenBy(p => p.Index.Name);
+                        else if (sortFieldLower == "description")
+                            orderedQuery = sortField.Order == SortOrder.Desc
+                                ? orderedQuery.ThenByDescending(p => p.Index.Description)
+                                : orderedQuery.ThenBy(p => p.Index.Description);
+                        else if (sortFieldLower == "status")
+                            orderedQuery = sortField.Order == SortOrder.Desc
+                                ? orderedQuery.ThenByDescending(p => p.Index.Status)
+                                : orderedQuery.ThenBy(p => p.Index.Status);
+                        else
+                            throw new NotSupportedException($"Sort field {sortFieldLower} is not supported.");
+                    }
+                }
+                query = orderedQuery ?? query;
+            }
+            else
+            {
+                query = query.OrderBy(p => p.Index.Name); // Default sort
+            }
+
+            // Pagination (simulate Cosmos continuation token with Take)
+            int pageSize = searchRequest.PageSize ?? 100;
+            var itemIds = new List<string>();
+            using (var iterator = query.Take(pageSize).ToFeedIterator())
+            {
+                while (iterator.HasMoreResults)
+                {
+                    foreach (var doc in await iterator.ReadNextAsync())
+                    {
+                        if (doc.ItemId != null) // Prevents CS8604
+                            itemIds.Add(doc.ItemId);
+                    }
+                }
+            }
+
+            if (itemIds.Count == 0)
+                return (new List<Project>(), null);
+
+            // Fetch projects by itemIds
+            var projectsQuery = _projectsContainer.GetItemLinqQueryable<Project>(allowSynchronousQueryExecution: true)
+                .Where(p => itemIds.Contains(p.Id) && p.Type == "project");
+
+            var results = new List<Project>();
+            using (var iterator = projectsQuery.ToFeedIterator())
+            {
+                while (iterator.HasMoreResults)
+                {
+                    foreach (var project in await iterator.ReadNextAsync())
+                    {
+                        results.Add(project);
+                    }
+                }
+            }
+            // Order results according to itemIds
+            var resultsDict = results.ToDictionary(p => p.Id, p => p);
+            var orderedResults = itemIds.Select(id => resultsDict.TryGetValue(id, out var project) ? project : null)
+                                        .Where(p => p != null)
+                                        .ToList();
+
+            string? newContinuationToken = null; // Implement if you want real continuation tokens
+
+            return (orderedResults!, newContinuationToken);
         }
 
         public async Task<(List<Project> Items, string? ContinuationToken)> SearchAsync(EntitySearchRequest searchRequest)
@@ -193,7 +474,7 @@ namespace CosmosAnalytics.ApiService.Data
                                     filters.Add($"c.index.{field} = {paramName}");
                                     parameters[paramName] = ssp.Value;
                                     break;
-                                    case StringOperation.Contains:
+                                case StringOperation.Contains:
                                     {
                                         var tokens = LowercaseAsciiFoldingAnalyzer.AnalyzeText(ssp.Value.ToString());
                                         var orConditions = new List<string>();
@@ -278,7 +559,7 @@ namespace CosmosAnalytics.ApiService.Data
             sql += " WHERE " + string.Join(" AND ", filters);
 
             _logger.LogInformation($"SQL query: {sql}");
-            string jsonString = JsonSerializer.Serialize(parameters); 
+            string jsonString = JsonSerializer.Serialize(parameters);
             _logger.LogInformation($"parameters: {jsonString}");
 
             // Sorting

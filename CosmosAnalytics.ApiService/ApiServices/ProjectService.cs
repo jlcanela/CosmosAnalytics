@@ -157,7 +157,7 @@ public class ProjectService
 
     public async Task<PaginatedResponse<Project>> SearchAsync(EntitySearchRequest searchRequest)
     {
-        var (items, token) = await _repository.SearchAsync(searchRequest);
+        var (items, token) = await _repository.SearchWithLinqAsync(searchRequest);
         return new PaginatedResponse<Project>(items, token, items.Count);
     }
 
